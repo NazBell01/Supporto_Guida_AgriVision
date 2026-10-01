@@ -24,6 +24,8 @@ jobs:
         with: { node-version: 22 }
       - name: Geometria JS identica al notebook
         run: node test/confronta.mjs
+      - name: Modalità generale (scene sintetiche e profondità vere)
+        run: node test/generale.mjs
 
   deploy:
     needs: test

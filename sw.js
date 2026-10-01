@@ -2,9 +2,9 @@
 // funziona senza rete, come in vigna dove il telefono non prende.
 // Pagina e script: prima la rete, la cache solo se manca il segnale (così un aggiornamento
 // arriva subito). Runtime e modello: prima la cache (sono grandi e cambiano di rado).
-const VERSIONE = 'agrivision-v1';
+const VERSIONE = 'agrivision-v2';
 const GUSCIO = ['./', 'index.html', 'style.css', 'manifest.webmanifest', 'icona-192.png',
-                'js/app.js', 'js/geometria.js', 'js/disegno.js', 'js/config.js',
+                'js/app.js', 'js/geometria.js', 'js/generale.js', 'js/disegno.js', 'js/config.js',
                 'vendor/ort/ort.min.js'];
 
 self.addEventListener('install', e => {

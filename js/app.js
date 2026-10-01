@@ -9,6 +9,7 @@ import {
   rettePerFotogramma, statoMisura, Righello, mediana,
 } from './geometria.js';
 import { Cruscotto } from './disegno.js';
+import { analizza as analizzaGenerale, normalizza as normalizzaProfondita, PARAM as PARAM_GEN } from './generale.js';
 
 const $ = id => document.getElementById(id);
 const [L, A] = GUIDA_DIM;
@@ -18,11 +19,17 @@ const memoria = {
   leggi() { try { return JSON.parse(localStorage.getItem('agrivision') || '{}'); } catch { return {}; } },
   scrivi(o) { try { localStorage.setItem('agrivision', JSON.stringify(o)); } catch { /* modalità privata */ } },
 };
-const prefs = { corridoioCm: CONFIG.corridoioCm, soglia: CONFIG.soglia, ...memoria.leggi() };
+const prefs = { corridoioCm: CONFIG.corridoioCm, soglia: CONFIG.soglia, modo: 'vigna',
+                altezzaM: null, inclinazione: null, hfov: PARAM_GEN.hfovGradi, ...memoria.leggi() };
+// Un modello per modalità: vigna = segmentazione del corridoio, generale = profondità (MiDaS small).
+const MODELLI = {
+  vigna:    { url: CONFIG.modello,           nome: 'guida.onnx',      dim: [L, A] },
+  generale: { url: CONFIG.modelloProfondita, nome: 'profondita.onnx', dim: [256, 256] },
+};
 
 // ------------------------------------------------------------------ stato ---
 const S = {
-  sess: null, nomeIn: null, nomeOut: null, provider: '?',
+  sessioni: {}, sess: null, nomeIn: null, nomeOut: null, provider: '?', modo: prefs.modo, precRotta: null,
   stream: null, facing: 'environment', daFile: false,
   attivo: false, pausa: false, occupato: false,
   righello: new Righello(), storia: [], registro: [],
@@ -35,6 +42,9 @@ const ctx = schermo.getContext('2d');
 const piccolo = document.createElement('canvas'); piccolo.width = L; piccolo.height = A;
 const pctx = piccolo.getContext('2d', { willReadFrequently: true });
 const tensore = new Float32Array(3 * L * A);
+const piccoloG = document.createElement('canvas'); piccoloG.width = 256; piccoloG.height = 256;
+const pctxG = piccoloG.getContext('2d', { willReadFrequently: true });
+const tensoreG = new Float32Array(3 * 256 * 256);
 const cruscotto = new Cruscotto(ctx, { ...CONFIG, ...prefs });
 
 // ------------------------------------------------------------------- UI -----
@@ -82,7 +92,7 @@ async function scaricaModello(url) {
   return buf;
 }
 
-async function creaSessione(buf) {
+async function creaSessione(buf, dim) {
   ort.env.wasm.wasmPaths = new URL('vendor/ort/', document.baseURI).href;
   ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
   // ORT toglie da solo un provider non disponibile senza dirlo: si controlla qui, così
@@ -95,7 +105,7 @@ async function creaSessione(buf) {
     try {
       const s = await ort.InferenceSession.create(buf, { executionProviders: ep, graphOptimizationLevel: 'all' });
       // Riscaldamento: verifica che il provider funzioni davvero e misura il tempo.
-      const nomeIn = s.inputNames[0], x = new ort.Tensor('float32', new Float32Array(3 * L * A), [1, 3, A, L]);
+      const nomeIn = s.inputNames[0], x = new ort.Tensor('float32', new Float32Array(3 * dim[0] * dim[1]), [1, 3, dim[1], dim[0]]);
       await s.run({ [nomeIn]: x });
       const t = performance.now(); await s.run({ [nomeIn]: x });
       S.msInf = performance.now() - t; S.provider = ep[0];
@@ -105,35 +115,68 @@ async function creaSessione(buf) {
   throw ultimo;
 }
 
-async function usaModello(buf, etichetta) {
+async function usaModello(buf, etichetta, modo) {
+  const M = MODELLI[modo];
   $('modello-stato').textContent = 'Modello: inizializzazione…';
-  S.sess = await creaSessione(buf);
-  S.nomeIn = S.sess.inputNames[0]; S.nomeOut = S.sess.outputNames[0];
-  const dims = S.sess.inputMetadata?.[S.nomeIn]?.shape;
-  if (dims && dims.length === 4 && (dims[2] !== A || dims[3] !== L) && typeof dims[2] === 'number') {
-    throw new Error(`il modello attende ${dims[3]}×${dims[2]}, il simulatore ${L}×${A}`);
+  const sess = await creaSessione(buf, M.dim);
+  const nomeIn = sess.inputNames[0];
+  const dims = sess.inputMetadata?.[nomeIn]?.shape;
+  if (dims && dims.length === 4 && typeof dims[2] === 'number' && (dims[2] !== M.dim[1] || dims[3] !== M.dim[0])) {
+    throw new Error(`il modello attende ${dims[3]}×${dims[2]}, questa modalità ${M.dim[0]}×${M.dim[1]}`);
   }
-  $('modello-stato').textContent = `Modello pronto (${etichetta}) · ${S.provider} · ${S.msInf.toFixed(0)} ms/fotogramma`;
-  progresso(1); $('btn-avvia').disabled = false; $('carica-modello').hidden = true;
+  S.sessioni[modo] = { sess, nomeIn, nomeOut: sess.outputNames[0], provider: S.provider, ms: S.msInf, etichetta };
+  if (modo === S.modo) mostraModello();
 }
 
-async function caricaModello() {
+function mostraModello() {
+  const m = S.sessioni[S.modo];
+  if (!m) return;
+  S.sess = m.sess; S.nomeIn = m.nomeIn; S.nomeOut = m.nomeOut; S.provider = m.provider;
+  $('modello-stato').textContent = `Modello pronto (${m.etichetta}) · ${m.provider} · ${m.ms.toFixed(0)} ms/fotogramma`;
+  progresso(1); $('btn-avvia').disabled = false; $('carica-modello').hidden = true; errore('');
+}
+
+async function caricaModello(modo = S.modo) {
+  const M = MODELLI[modo];
+  $('btn-avvia').disabled = true; $('btn-avvia').textContent = 'Avvia videocamera';
+  if (S.sessioni[modo]) return mostraModello();
+  $('carica-modello').firstChild.textContent = `Scegli il file ${M.nome}`;
   try {
-    await usaModello(await scaricaModello(CONFIG.modello), 'guida.onnx');
+    await usaModello(await scaricaModello(M.url), M.nome, modo);
   } catch (e) {
     console.error(e);
+    if (modo !== S.modo) return;
     progresso(0);
-    $('modello-stato').textContent = 'Modello non trovato: scegli il file guida.onnx esportato dal notebook.';
+    $('modello-stato').textContent = `Modello non trovato: scegli il file ${M.nome}.`;
     $('carica-modello').hidden = false;
-    errore(`Impossibile caricare ${CONFIG.modello} (${e.message}). Vedi modelli/LEGGIMI.md.`);
+    errore(`Impossibile caricare ${M.url} (${e.message}). Vedi modelli/LEGGIMI.md.`);
   }
 }
 $('file-modello').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   errore('');
-  try { await usaModello(new Uint8Array(await f.arrayBuffer()), f.name); }
+  try { await usaModello(new Uint8Array(await f.arrayBuffer()), f.name, S.modo); }
   catch (er) { errore(`File non valido: ${er.message}`); }
 });
+
+// ------------------------------------------------------------- modalità -----
+function impostaModo(modo) {
+  S.modo = prefs.modo = modo; memoria.scrivi(prefs);
+  document.querySelectorAll('[data-modo]').forEach(el => (el.hidden = el.dataset.modo !== modo));
+  for (const r of document.querySelectorAll('input[name=modo]')) r.checked = r.value === modo;
+  S.sess = null; errore('');
+  $('modello-stato').textContent = 'Modello: in caricamento…'; progresso(0);
+  caricaModello(modo);
+}
+document.querySelectorAll('input[name=modo]').forEach(r => r.addEventListener('change', () => impostaModo(r.value)));
+const numOrNull = v => { const x = parseFloat(v); return Number.isFinite(x) && x > 0 ? x : null; };
+for (const [id, chiave] of [['in-altezza', 'altezzaM'], ['in-incl', 'inclinazione'], ['in-hfov', 'hfov']]) {
+  $(id).value = prefs[chiave] ?? '';
+  $(id).addEventListener('change', e => {
+    prefs[chiave] = chiave === 'inclinazione' ? (e.target.value === '' ? null : parseFloat(e.target.value)) : numOrNull(e.target.value);
+    memoria.scrivi(prefs);
+  });
+}
 
 // ------------------------------------------------------------ sorgente video --
 async function avviaCamera() {
@@ -172,7 +215,7 @@ async function schermoAcceso() {
 
 function partenza() {
   S.attivo = true; S.pausa = false; S.storia = []; S.registro = []; S.largh = []; S.larghLunga = [];
-  S.righello = new Righello(); S.t0 = performance.now();
+  S.righello = new Righello(); S.t0 = performance.now(); S.precRotta = null;
   $('avvio').hidden = true; $('comandi').hidden = false; $('b-cam').hidden = S.daFile;
   schermoAcceso(); $('b-pausa').textContent = '❚❚';
   setTimeout(() => {
@@ -218,6 +261,7 @@ async function ciclo() {
 async function passo() {
   const vw = video.videoWidth, vh = video.videoHeight; S.vw = vw; S.vh = vh;
   const { w: Wf, h: Hf } = dimensionaCanvas(vw, vh);
+  if (S.modo === 'generale') { await passoGenerale(Wf, Hf, vw, vh); return diagnostica(vw, vh); }
   const util = rettangoloUtile(vw, vh), { ox, oy, nw, nh } = util;
 
   // 1. lettera di casella e normalizzazione ImageNet
@@ -270,12 +314,65 @@ async function passo() {
     },
   });
 
-  // FPS e diagnostica
+  diagnostica(vw, vh);
+}
+
+function diagnostica(vw, vh) {
   const n = performance.now();
   if (S.ultimoFps) S.fps = S.fps ? S.fps * 0.9 + (1000 / (n - S.ultimoFps)) * 0.1 : 1000 / (n - S.ultimoFps);
   S.ultimoFps = n;
   const d = $('diag'); d.hidden = false;
   d.textContent = `${S.provider} · ${S.msInf.toFixed(0)} ms · ${S.fps.toFixed(0)} fps · ${vw}×${vh}`;
+}
+
+// ------------------------------------------------------- modalità generale --
+const ostCanvas = document.createElement('canvas'); ostCanvas.width = 256; ostCanvas.height = 256;
+
+async function passoGenerale(Wf, Hf, vw, vh) {
+  // la rete di profondità vuole 256×256: il fotogramma si stira, le proporzioni non contano
+  pctxG.imageSmoothingEnabled = true; pctxG.imageSmoothingQuality = 'medium';
+  pctxG.drawImage(video, 0, 0, 256, 256);
+  normalizza(pctxG.getImageData(0, 0, 256, 256).data, [256, 256], tensoreG);
+  const t = performance.now();
+  const out = await S.sess.run({ [S.nomeIn]: new ort.Tensor('float32', tensoreG, [1, 3, 256, 256]) });
+  S.msInf = S.msInf ? S.msInf * 0.9 + (performance.now() - t) * 0.1 : performance.now() - t;
+
+  const nd = normalizzaProfondita(out[S.nomeOut].data);
+  const vfov = 2 * Math.atan(Math.tan(prefs.hfov * Math.PI / 360) * vh / vw) * 180 / Math.PI;
+  const cal = (prefs.altezzaM && prefs.inclinazione !== null)
+    ? { altezzaM: prefs.altezzaM, inclinazioneGradi: prefs.inclinazione, vfovGradi: vfov } : null;
+  const r = nd.valida ? analizzaGenerale(nd.d, 256, 256, S.precRotta, cal, { ...PARAM_GEN, hfovGradi: prefs.hfov }) : null;
+
+  // la direzione si liscia nel tempo (media esponenziale) per non far tremare la freccia
+  let rotta = null;
+  if (r && r.azione && r.azione !== 'FERMO') {
+    rotta = S.precRotta === null ? r.rotta : S.precRotta + 0.4 * (r.rotta - S.precRotta);
+    S.precRotta = rotta;
+  } else S.precRotta = null;
+  const stato = !r || !r.azione ? 'incerto' : r.azione === 'FERMO' ? 'assente' : 'ok';
+  const ora = (performance.now() - S.t0) / 1000;
+  S.storia.push({ t: ora, v: rotta, s: stato });
+  while (S.storia.length && S.storia[0].t < ora - CONFIG.secondiTraccia) S.storia.shift();
+  const libero = !r || !r.pianoOk ? null : (r.metri ? r.metri[r.migliorBin] : r.chiaroMigliore);   // senza terreno riconosciuto nessun valore
+  S.registro.push({ t: +ora.toFixed(3), misura: rotta === null ? null : +rotta.toFixed(1), stato,
+                    azione: r ? r.azione : null, libero: libero === null || !Number.isFinite(libero) ? null : +libero.toFixed(2) });
+
+  // ostacoli come velo rosso (256×256, poi ingrandito dal canvas)
+  const mc = ostCanvas.getContext('2d'), img = mc.createImageData(256, 256), d = img.data;
+  if (r && r.pianoOk) for (let i = 0; i < r.ostacoli.length; i++) if (r.ostacoli[i]) { const j = i * 4; d[j] = 235; d[j + 1] = 70; d[j + 2] = 70; d[j + 3] = 105; }
+  mc.putImageData(img, 0, 0);
+
+  const k = Math.max(0.8, Math.min(1.5, Math.min(Wf, Hf) / 560));
+  ctx.drawImage(video, 0, 0, Wf, Hf);
+  const metri = !!(r && r.metri);
+  const frasi = { sx: 'VIRA A SINISTRA', dx: 'VIRA A DESTRA', centro: 'VIA LIBERA', nd: 'TERRENO NON RICONOSCIUTO', fermo: 'OSTACOLO VICINO' };
+  cruscotto.disegnaGenerale(Wf, Hf, k, { stato, r, ostCanvas, rotta, dati: {
+    scarto: rotta, stato, unita: '°', storia: S.storia, ora, generale: true, frasi,
+    fraseStato: { ok: 'PERCORSO CALCOLATO', incerto: 'TERRENO NON RICONOSCIUTO', assente: 'FERMARSI' }[stato],
+    pannello2: { titolo: 'SPAZIO LIBERO',
+      valore: libero === null || !Number.isFinite(libero) ? '--' : metri ? libero.toFixed(1) : String(Math.round(libero * 100)),
+      unita: metri ? 'm' : '%', nota: metri ? 'camera calibrata' : 'relativo · non calibrato' },
+  } });
 }
 
 // Maschera grezza come velo blu del marchio (alfa 0.14), ritagliata sull'area utile.
@@ -303,9 +400,9 @@ $('b-log').addEventListener('click', () => {
   const quando = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const unita = prefs.corridoioCm ? 'cm' : 'px';
   const doc = {
-    sessione: CONFIG.sessione, errori_misurati_su: CONFIG.sessione, unita,
+    sessione: CONFIG.sessione, errori_misurati_su: CONFIG.sessione, unita: S.modo === 'generale' ? 'gradi' : unita,
     corridoio_cm: prefs.corridoioCm, soglia_sterzo_cm: prefs.soglia,
-    sorgente: S.daFile ? 'video' : 'camera', provider: S.provider,
+    sorgente: S.daFile ? 'video' : 'camera', provider: S.provider, modalita: S.modo,
     scarti: S.registro.filter(r => r.misura !== null).map(r => r.misura), registro: S.registro,
   };
   const a = document.createElement('a');
@@ -317,4 +414,4 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && S.
 // Funzionamento offline dopo il primo caricamento (richiede https o localhost).
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-caricaModello();
+impostaModo(prefs.modo === 'generale' ? 'generale' : 'vigna');

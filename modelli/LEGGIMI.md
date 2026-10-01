@@ -33,3 +33,9 @@ telefono senza pubblicare nulla (resta in memoria, va riscelto a ogni apertura).
   il cruscotto usa 8,2 cm per la banda di incertezza sul righello.
 - **Ingresso fisso.** Il modello è esportato con ingresso 1×3×192×320; l'app lo verifica e lo dice
   se non coincide.
+
+## profondita.onnx (modalità generale)
+
+Incluso nel repository: è MiDaS small v2.1, licenza MIT (vedi `MiDaS-LICENSE.txt`), 67 MB, ingresso 1×3×256×256.
+Non va esportato da nessuna parte. Un'alternativa più precisa ma troppo pesante per un telefono in tempo reale
+è Depth Anything V2 (518×518, 99 MB).

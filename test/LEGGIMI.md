@@ -11,3 +11,9 @@ senza il modello vero: un ONNX finto (classe 1 = «verde meno rosso») e un vide
 verde che oscilla, mandato alla pagina come videocamera simulata. Verificano videocamera,
 inferenza in WebAssembly, disegno e registro; **non** dicono nulla sulla qualità del modello.
 Servono `onnx`, `numpy`, `pillow`, ffmpeg e Playwright; vedi i percorsi in testa ai file.
+
+**`generale.mjs`** — prove della modalità generale: scene sintetiche (terreno libero, ostacoli a
+destra/sinistra/al centro, muro vicino, parete di sbieco, telefono inclinato, camera calibrata) e tre
+profondità **vere** prodotte da MiDaS su foto reali (`profondita_reali.json`): libri su un pavimento
+(deve vedere gli ostacoli e indicare il libero), facciata di un palazzo e primo piano di una pianta
+(non devono dare una via libera inventata). `node test/generale.mjs`.

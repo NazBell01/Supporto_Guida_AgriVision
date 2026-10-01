@@ -1,6 +1,7 @@
 // Parametri del simulatore, dalla cella 1 del notebook REV_R.
 export const CONFIG = {
   modello: 'modelli/guida.onnx',   // esportato dalla cella 1bis del notebook (vedi modelli/LEGGIMI.md)
+  modelloProfondita: 'modelli/profondita.onnx',   // MiDaS small v2.1 (MIT), per la modalità generale
   logo: 'logo.png',                // facoltativo: se manca, il cruscotto scrive il nome
 
   // Larghezza reale del corridoio erboso, misurata col metro. null = «scala non

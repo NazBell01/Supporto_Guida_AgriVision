@@ -158,3 +158,6 @@ export function analizzaMaschera(m, righello, corridoioCm, dim = GUIDA_DIM) {
   if (sc !== null && affidabile && corridoioCm) cm = sc / larghezza * corridoioCm;
   return { sc, geo, affidabile, cm };
 }
+
+// Per la modalità generale (js/generale.js): stessa regressione robusta della guida a corridoio.
+export { rettaRobusta };

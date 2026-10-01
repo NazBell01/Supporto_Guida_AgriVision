@@ -42,3 +42,28 @@ Diversi:
 
 Come nel notebook: **ausilio all'operatore, non un comando alla macchina**. Il modello sbaglia 4,2 cm
 su corridoi mai visti della stessa giornata e 8,2 cm su una giornata diversa.
+
+## Modalità generale (prova): ostacoli e direzione consigliata
+
+Dalla schermata iniziale si può scegliere **Generale · prova**: non serve essere in vigna. Un modello di
+profondità da una sola camera (**MiDaS small**, `modelli/profondita.onnx`, licenza MIT) dà la distanza
+*relativa* di ogni pixel; da lì:
+
+1. si adatta un **piano di terreno** alla zona davanti alla macchina (su un terreno piano la disparità
+   cresce linearmente verso il basso dell'immagine);
+2. ciò che sporge dal piano è un **ostacolo** (rosso); il terreno libero è in blu;
+3. per ognuna delle 48 direzioni si misura fin dove il terreno resta libero e si sceglie la direzione con
+   più spazio, penalizzando le sterzate inutili: **freccia** e angolo in gradi.
+
+Nessun addestramento. **Limiti, tutti da conoscere:**
+- Assume terreno **piano** e la zona davanti alla macchina **libera** all'avvio: un ostacolo che la riempie
+  viene scambiato per terreno.
+- Controllo di plausibilità: se il gradiente di disparità non è circa verticale (oltre 35°), come su una
+  parete vista di sbieco o su un primo piano, l'app dice *terreno non riconosciuto* invece di dare una
+  direzione. Una superficie piatta e vicina davanti dà *fermarsi*.
+- Le distanze sono **relative** (percentuale dello spazio visibile) finché non si inseriscono altezza e
+  inclinazione della camera e il campo visivo nelle impostazioni: allora diventano metri, ma restano una
+  stima da una sola immagine, **non misurata né validata**.
+- Nessuna validazione sul tuo terreno: lo scarto in cm della modalità vigna ha un errore misurato, questa no.
+- Ausilio, non un comando: per evitare ostacoli su una macchina vera servono sensori dedicati e un arresto
+  indipendente dal telefono.

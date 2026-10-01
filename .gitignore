@@ -1,1 +1,2 @@
 modelli/*.onnx
+!modelli/profondita.onnx

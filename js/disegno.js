@@ -169,19 +169,21 @@ export class Cruscotto {
     if (G.vert) this.linea(G.m + K(8), yt - K(4), G.m + G.Wc - K(8), yt - K(4), C_ETICH, K(1));
 
     // scarto laterale: numero, lato, barra con la zona DRITTO
-    this.testo('SCARTO LATERALE', xs + K(10), ys + K(16), 0.34, C_ETICH);
+    this.testo(dati.generale ? 'DIREZIONE CONSIGLIATA' : 'SCARTO LATERALE', xs + K(10), ys + K(16), 0.34, C_ETICH);
     const v = dati.scarto, cm = dati.unita === 'cm';
     const vals = dati.storia.map(r => r.v).filter(x => x !== null);
     let fondo, soglia = null;
-    if (cm) { fondo = Math.max(3 * this.cfg.soglia, 30); soglia = this.cfg.soglia; }
+    if (dati.generale) { fondo = 45; soglia = this.cfg.sogliaDritto ?? 6; }
+    else if (cm) { fondo = Math.max(3 * this.cfg.soglia, 30); soglia = this.cfg.soglia; }
     else { const a = vals.map(Math.abs).sort((p, q) => p - q); fondo = a.length ? Math.max(30, a[Math.max(0, Math.ceil(a.length * 0.95) - 1)] * 1.3) : 30; }
     const testo = v !== null ? Math.abs(v).toFixed(0) : '--';
     this.testo(testo, xs + K(12), ys + K(46), 0.92, col, 800);
     this.testo(dati.unita, xs + K(18) + this.larg(testo, 0.92, 800), ys + K(46), 0.40, C_ETICH);
     let frase, colF;
-    if (v === null) { frase = { incerto: 'MISURA INAFFIDABILE', assente: 'NESSUN CORRIDOIO' }[stato] || '--'; colF = stato === 'incerto' ? C_ARANCIO : C_ROSSO; }
-    else if (soglia !== null && Math.abs(v) <= soglia) { frase = 'CORRIDOIO CENTRATO'; colF = col; }
-    else { frase = v > 0 ? 'CORRIDOIO A DESTRA' : 'CORRIDOIO A SINISTRA'; colF = col; }
+    const F = dati.frasi;
+    if (v === null) { frase = F ? { incerto: F.nd, assente: F.fermo }[stato] : ({ incerto: 'MISURA INAFFIDABILE', assente: 'NESSUN CORRIDOIO' }[stato] || '--'); colF = stato === 'incerto' ? C_ARANCIO : C_ROSSO; }
+    else if (soglia !== null && Math.abs(v) <= soglia) { frase = F ? F.centro : 'CORRIDOIO CENTRATO'; colF = col; }
+    else { frase = F ? (v > 0 ? F.dx : F.sx) : (v > 0 ? 'CORRIDOIO A DESTRA' : 'CORRIDOIO A SINISTRA'); colF = col; }
     this.testo(frase, xs + K(12), ys + K(64), 0.34, colF);
     const bx0 = xs + K(14), bx1 = xs + ws - K(10), by0 = ys + K(72), by1 = ys + K(82);
     const cxb = (bx0 + bx1) / 2, semi = (bx1 - bx0) / 2;
@@ -196,20 +198,22 @@ export class Cruscotto {
     this.linea(cxb, by0 - K(3), cxb, by1 + K(3), C_ETICH, K(1));
     if (mx !== null) { this.linea(mx, by0 - K(4), mx, by1 + K(4), 'rgb(10,8,6)', K(5)); this.linea(mx, by0 - K(4), mx, by1 + K(4), C_BIANCO, K(3)); }
 
-    // corridoio: la sola stima di larghezza
-    this.testo('CORRIDOIO', xr + K(10), yr + K(16), 0.34, C_ETICH);
+    // pannello centrale: stima della larghezza del corridoio (vigna) o spazio libero (generale)
+    const P2 = dati.pannello2;
+    this.testo(P2 ? P2.titolo : 'CORRIDOIO', xr + K(10), yr + K(16), 0.34, C_ETICH);
     const hasScala = !!this.cfg.corridoioCm;
-    const t2 = hasScala && dati.stimaCm != null ? '~' + dati.stimaCm.toFixed(0) : '--';
+    const t2 = P2 ? P2.valore : (hasScala && dati.stimaCm != null ? '~' + dati.stimaCm.toFixed(0) : '--');
     this.testo(t2, xr + K(12), yr + K(46), 0.92, C_CIANO, 800);
-    this.testo(hasScala ? 'cm  stima' : 'px', xr + K(18) + this.larg(t2, 0.92, 800), yr + K(46), 0.34, C_ETICH);
-    if (!hasScala) this.testo('scala non misurata', xr + K(12), yr + K(64), 0.28, C_ARANCIO);
+    this.testo(P2 ? P2.unita : (hasScala ? 'cm  stima' : 'px'), xr + K(18) + this.larg(t2, 0.92, 800), yr + K(46), 0.34, C_ETICH);
+    if (P2) this.testo(P2.nota, xr + K(12), yr + K(64), 0.28, P2.nota.includes('non') ? C_ARANCIO : C_ETICH);
+    else if (!hasScala) this.testo('scala non misurata', xr + K(12), yr + K(64), 0.28, C_ARANCIO);
 
     // traccia dello scarto, asse del tempo fisso
-    this.testo(`SCARTO  ${this.cfg.secondiTraccia}s`, xt + K(10), yt + K(16), 0.34, C_ETICH);
-    this.traccia(xt + K(10), yt + K(22), wt - K(20), (G.vert ? ht : G.ph) - K(30), dati, col, cm ? 100 : Math.max(30, fondo), soglia);
+    this.testo(`${dati.generale ? 'DIREZIONE' : 'SCARTO'}  ${this.cfg.secondiTraccia}s`, xt + K(10), yt + K(16), 0.34, C_ETICH);
+    this.traccia(xt + K(10), yt + K(22), wt - K(20), (G.vert ? ht : G.ph) - K(30), dati, col, dati.generale ? 45 : (cm ? 100 : Math.max(30, fondo)), soglia);
 
     // riga di stato
-    const t3 = `AUSILIO ALL'OPERATORE  //  ${FRASE_STATO[stato]}`;
+    const t3 = `AUSILIO ALL'OPERATORE  //  ${dati.fraseStato || FRASE_STATO[stato]}`;
     this.testo(t3, (Wf - this.larg(t3, 0.38)) / 2, Hf - K(16), 0.38, col);
     c.fillStyle = C_ARANCIO; c.beginPath(); c.arc(G.m + K(6), Hf - K(20), K(5), 0, Math.PI * 2); c.fill();
     this.testo('LIVE', G.m + K(18), Hf - K(16), 0.30, C_ETICH);
@@ -245,6 +249,49 @@ export class Cruscotto {
     } else {
       this.testo('KYDO ROBOTICS', m + K(4), K(38), 0.58, col, 800);
     }
+  }
+
+  // Modalità generale: spazio libero per direzione, ostacoli e freccia della direzione consigliata.
+  disegnaGenerale(w, h, k, v) {
+    this.dim = { w, h }; this.k = k;
+    const c = this.ctx, K = x => this.K(x), r = v.r, col = COLORE_STATO[v.stato];
+    this.testataH = K(74); this.piedeH = h - this.geomConsole().yc0;
+    this.squadre(col); this.testata(v.stato);
+    if (r && r.pianoOk) {
+      const sx = w / 256, sy = h / 256, nB = r.nB, bw = w / nB, yb = r.yBasso * sy;
+      // spazio libero: colonne blu del marchio dal basso fino al primo ostacolo; le direzioni bloccate in rosso
+      for (let i = 0; i < nB; i++) {
+        const y = r.vLibero[i] * sy;
+        c.fillStyle = BLU_MARCHIO; c.globalAlpha = r.bloccato[i] ? 0.12 : 0.36;
+        c.fillRect(i * bw, y, bw + 0.5, Math.max(0, yb - y));
+        c.globalAlpha = 1;
+        if (r.bloccato[i]) this.linea(i * bw, y, (i + 1) * bw, y, C_ROSSO, K(3));
+      }
+      c.save(); c.imageSmoothingEnabled = true; c.imageSmoothingQuality = 'high';
+      c.drawImage(v.ostCanvas, 0, 0, w, h); c.restore();
+      // corridoio dell'ingombro della macchina intorno alla direzione scelta
+      const xm = (r.migliorBin + 0.5) * bw, yf = Math.max(r.vLibero[r.migliorBin] * sy, h * 0.40);
+      const x0 = w / 2, y0 = Math.min(yb - K(6), h - this.piedeH - K(10));
+      if (v.stato !== 'assente') this.freccia(x0, y0, xm, Math.min(yf, y0 - K(60)), col);
+    }
+    // asse della macchina
+    c.setLineDash([K(6), K(6)]);
+    this.linea((w - 1) / 2, K(96), (w - 1) / 2, h - K(40), C_BIANCO, K(1));
+    c.setLineDash([]);
+    this.console(v.dati);
+    return null;
+  }
+
+  freccia(x0, y0, x1, y1, col) {
+    const c = this.ctx, K = v => this.K(v), a = Math.atan2(y1 - y0, x1 - x0), t = K(16);
+    for (const [colore, sp] of [['rgb(6,8,10)', K(9)], [C_BIANCO, K(5)]]) {
+      c.strokeStyle = colore; c.fillStyle = colore; c.lineWidth = sp; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1 - Math.cos(a) * t * 0.6, y1 - Math.sin(a) * t * 0.6); c.stroke();
+      c.beginPath(); c.moveTo(x1, y1);
+      c.lineTo(x1 - Math.cos(a - 0.45) * t, y1 - Math.sin(a - 0.45) * t);
+      c.lineTo(x1 - Math.cos(a + 0.45) * t, y1 - Math.sin(a + 0.45) * t); c.closePath(); c.fill();
+    }
+    c.lineCap = 'butt';
   }
 
   // Un fotogramma completo. `v` = {geoF, yAltoF, yBassoF, maskCanvas, areaMask, stato, dati: z => ({...})}

@@ -23,6 +23,11 @@
     <p>La videocamera del telefono viene analizzata <b>sul telefono</b>, senza inviare nulla in rete.
        Inquadra il corridoio tra i filari e tieni il telefono <b>in orizzontale</b>.</p>
 
+    <fieldset class="modi">
+      <label><input type="radio" name="modo" value="vigna" checked><span><b>Vigna</b><small>corridoio tra i filari, scarto in cm</small></span></label>
+      <label><input type="radio" name="modo" value="generale"><span><b>Generale · prova</b><small>ostacoli e direzione consigliata</small></span></label>
+    </fieldset>
+
     <div id="modello-stato" class="riga">Modello: in caricamento…</div>
     <div id="barra"><i></i></div>
     <label id="carica-modello" class="btn secondario" hidden>Scegli il file guida.onnx
@@ -36,13 +41,26 @@
 
     <details>
       <summary>Impostazioni</summary>
+      <div data-modo="generale" hidden>
+        <label>Altezza della camera da terra (m) — facoltativa
+          <input type="number" id="in-altezza" min="0.1" max="5" step="0.05" placeholder="vuoto = distanze relative"></label>
+        <label>Inclinazione della camera sotto l'orizzontale (°)
+          <input type="number" id="in-incl" min="-30" max="90" step="1" placeholder="0 = camera orizzontale"></label>
+        <label>Campo visivo orizzontale (°)
+          <input type="number" id="in-hfov" min="30" max="120" step="1"></label>
+      </div>
+      <div data-modo="vigna">
       <label>Larghezza del corridoio (cm)
         <input type="number" id="in-cm" min="50" max="500" step="1" placeholder="vuoto = scala non misurata"></label>
       <label>Soglia dello sterzo DRITTO (cm)
         <input type="number" id="in-soglia" min="1" max="100" step="1"></label>
+      </div>
     </details>
 
-    <p class="nota"><b>Ausilio all'operatore, non un comando alla macchina.</b>
+    <p class="nota" data-modo="generale" hidden><b>Prova, non validata.</b> Ostacoli e spazio libero si ricavano dalla
+       profondità relativa stimata da una sola camera (MiDaS): niente addestramento sul tuo terreno, nessun errore misurato.
+       Assume terreno piano e la zona davanti alla macchina libera. Senza calibrare la camera le distanze sono relative.</p>
+    <p class="nota" data-modo="vigna"><b>Ausilio all'operatore, non un comando alla macchina.</b>
        Il modello sbaglia <span id="e-dentro">4,2</span> cm su corridoi mai visti della stessa
        giornata di addestramento e <span id="e-fuori">8,2</span> cm su una giornata diversa
        (sessione <span id="sessione">D-20</span>). Senza larghezza misurata lo scarto è in pixel.</p>
