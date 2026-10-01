@@ -1,0 +1,15 @@
+{
+  "name": "Kydo AgriVision · Simulatore",
+  "short_name": "AgriVision",
+  "description": "Ausilio alla guida in vigna: scarto laterale dal corridoio, in tempo reale dalla videocamera.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "fullscreen",
+  "orientation": "landscape",
+  "background_color": "#0e1318",
+  "theme_color": "#0B4080",
+  "icons": [
+    { "src": "icona-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icona-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0B4080">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icona-192.png">
+<link rel="apple-touch-icon" href="icona-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Kydo AgriVision · Simulatore</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="schermo"></canvas>
+<video id="video" playsinline muted autoplay></video>
+
+<!-- schermata iniziale -->
+<main id="avvio">
+  <div class="scheda">
+    <img id="logo" src="logo.png" alt="" hidden>
+    <h1>KYDO ROBOTICS<small>AgriVision · simulatore in tempo reale</small></h1>
+    <p>La videocamera del telefono viene analizzata <b>sul telefono</b>, senza inviare nulla in rete.
+       Inquadra il corridoio tra i filari e tieni il telefono <b>in orizzontale</b>.</p>
+
+    <div id="modello-stato" class="riga">Modello: in caricamento…</div>
+    <div id="barra"><i></i></div>
+    <label id="carica-modello" class="btn secondario" hidden>Scegli il file guida.onnx
+      <input type="file" id="file-modello" accept=".onnx" hidden></label>
+
+    <div class="azioni">
+      <button id="btn-avvia" class="btn" disabled>Avvia videocamera</button>
+      <label class="btn secondario">Prova con un video
+        <input type="file" id="file-video" accept="video/*" hidden></label>
+    </div>
+
+    <details>
+      <summary>Impostazioni</summary>
+      <label>Larghezza del corridoio (cm)
+        <input type="number" id="in-cm" min="50" max="500" step="1" placeholder="vuoto = scala non misurata"></label>
+      <label>Soglia dello sterzo DRITTO (cm)
+        <input type="number" id="in-soglia" min="1" max="100" step="1"></label>
+    </details>
+
+    <p class="nota"><b>Ausilio all'operatore, non un comando alla macchina.</b>
+       Il modello sbaglia <span id="e-dentro">4,2</span> cm su corridoi mai visti della stessa
+       giornata di addestramento e <span id="e-fuori">8,2</span> cm su una giornata diversa
+       (sessione <span id="sessione">D-20</span>). Senza larghezza misurata lo scarto è in pixel.</p>
+    <div id="errore" class="errore" hidden></div>
+  </div>
+</main>
+
+<!-- comandi durante la guida -->
+<nav id="comandi" hidden>
+  <button id="b-cam"   title="Cambia camera"  aria-label="Cambia camera">⟲</button>
+  <button id="b-pausa" title="Pausa"          aria-label="Pausa">❚❚</button>
+  <button id="b-log"   title="Scarica registro degli scarti" aria-label="Scarica registro">⤓</button>
+  <button id="b-full"  title="Schermo intero" aria-label="Schermo intero">⛶</button>
+  <button id="b-stop"  title="Chiudi"         aria-label="Chiudi">✕</button>
+</nav>
+<div id="avviso" hidden></div>
+<div id="diag" hidden></div>
+
+<script src="vendor/ort/ort.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
