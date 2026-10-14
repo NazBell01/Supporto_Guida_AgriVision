@@ -114,6 +114,7 @@ export function geometriaCorridoio(m, L, A, margineAlto = 0.05, margineBordo = 0
     larghezza: bd - bs,
     rette: [pl, pr],
     yAlto: presenti[0], yBasso: presenti[presenti.length - 1],
+    bordi: { ls, ld, sx, dx },                    // righe usate e bordi per riga: servono alla curvatura
   };
 }
 
@@ -161,3 +162,63 @@ export function analizzaMaschera(m, righello, corridoioCm, dim = GUIDA_DIM) {
 
 // Per la modalità generale (js/generale.js): stessa regressione robusta della guida a corridoio.
 export { rettaRobusta };
+
+// ----------------------------------------------------------- linee guida ----
+// Per l'«assistente di linea» (stile retrocamera) i due bordi del corridoio diventano curve:
+//     x(y) = c0 + c1·(y − yref) + c2·(y − yref)²
+// adattate ai bordi per riga della maschera (minimi quadrati con scarto dei punti lontani, partendo
+// dalla retta del notebook). Dove il corridoio è dritto c2 ≈ 0 e la curva coincide con la retta.
+// Dove piega, la retta dello scarto in cm (identica al notebook) è un'approssimazione e la curva
+// mostra la forma che il modello vede. Lo scarto in cm resta quello del notebook: la curva è
+// grafica, non una misura nuova.
+function risolvi3(M) {                       // sistema 3×3 [A|b] con eliminazione di Gauss; null se singolare
+  for (let i = 0; i < 3; i++) {
+    let m = i; for (let j = i + 1; j < 3; j++) if (Math.abs(M[j][i]) > Math.abs(M[m][i])) m = j;
+    [M[i], M[m]] = [M[m], M[i]];
+    if (Math.abs(M[i][i]) < 1e-9) return null;
+    for (let j = i + 1; j < 3; j++) { const f = M[j][i] / M[i][i]; for (let k = i; k < 4; k++) M[j][k] -= f * M[i][k]; }
+  }
+  const x = [0, 0, 0];
+  for (let i = 2; i >= 0; i--) { let t = M[i][3]; for (let k = i + 1; k < 3; k++) t -= M[i][k] * x[k]; x[i] = t / M[i][i]; }
+  return x;
+}
+
+export function curveBordi(bordi, rette, yrefT) {
+  return [[bordi.ls, bordi.sx, rette[0]], [bordi.ld, bordi.dx, rette[1]]].map(([ys, bordo, p]) => {
+    const u = ys.map(y => y - yrefT), e = ys.map(y => bordo[y]);
+    let c = [polyval(p, yrefT), p[0], 0];
+    for (let giro = 0; giro < 4; giro++) {
+      const res = e.map((ei, i) => ei - (c[0] + c[1] * u[i] + c[2] * u[i] * u[i]));
+      const sg = Math.max(1.4826 * mediana(res.map(Math.abs)), 0.5);
+      const M = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
+      for (let i = 0; i < u.length; i++) if (Math.abs(res[i]) < 3 * sg) {
+        const r = [1, u[i], u[i] * u[i]];
+        for (let j = 0; j < 3; j++) { for (let k = 0; k < 3; k++) M[j][k] += r[j] * r[k]; M[j][3] += r[j] * e[i]; }
+      }
+      const n = risolvi3(M); if (!n) break; c = n;
+    }
+    return { c0: c[0], c1: c[1], c2: c[2] };
+  });
+}
+
+// Limita la curvatura: nel tratto disegnato lo scostamento quadratico non supera `quota` volte la
+// larghezza del corridoio alla riga di riferimento (oltre, è rumore della maschera).
+export function limitaCurvatura(k, spanT, larghT, quota = 0.35) {
+  const max = quota * larghT / Math.max(spanT * spanT, 1);
+  return Math.max(-max, Math.min(max, k));
+}
+
+// Punti delle tre curve (sinistra, destra, mezzeria) in coordinate del fotogramma, dal basso verso l'alto.
+// cv = [{c0, c1, c2}, {c0, c1, c2}] nelle coordinate della tela del modello; yrefT è la riga di riferimento
+// usata per ricavarle (lo stesso valore passato a curveBordi).
+export function curveFotogramma(cv, util, Wf, Hf, yrefT, yBassoF, yAltoF, n = 30) {
+  const { ox, oy, nw, nh } = util, sxf = Wf / nw, syf = Hf / nh;    // yrefT: riga di riferimento della tela, quella di curveBordi
+  const out = { sx: [], dx: [], mid: [] };
+  const val = (c, u) => (c.c0 + c.c1 * u + c.c2 * u * u - ox) * sxf;
+  for (let i = 0; i < n; i++) {
+    const yf = yBassoF + (yAltoF - yBassoF) * (n > 1 ? i / (n - 1) : 0), u = yf / syf + oy - yrefT;
+    const xl = val(cv[0], u), xr = val(cv[1], u);
+    out.sx.push([xl, yf]); out.dx.push([xr, yf]); out.mid.push([(xl + xr) / 2, yf]);
+  }
+  return out;
+}

@@ -3,7 +3,7 @@
 // Coordinate in pixel CSS del canvas; `k` scala le misure del notebook (pensate
 // per fotogrammi da ~1280x720) sullo schermo del telefono.
 
-import { polyval } from './geometria.js';
+import { polyval, limitaCurvatura, curveFotogramma } from './geometria.js';
 
 // Palette del marchio (RGB). Blu pieno per i riempimenti, schiarito per linee e testo.
 const BLU_MARCHIO = '#0B4080';
@@ -75,7 +75,7 @@ export class Cruscotto {
   // --------------------------------------------------------------- zona -----
   // Disegna maschera grezza (velo), trapezio, griglia e righello.
   // Ritorna {cmPx, centroCorr, largh} come _disegna_zona, o null.
-  zona(maskCanvas, geoF, yAltoF, yBassoF, stato, areaMask) {
+  zona(maskCanvas, geoF, yAltoF, yBassoF, stato, areaMask, curve = null) {
     const c = this.ctx, { w: Wf, h: Hf } = this.dim, k = this;
     const col = COLORE_STATO[stato], incerto = stato !== 'ok';
     if (maskCanvas) {                       // velo della maschera grezza, sotto
@@ -86,24 +86,28 @@ export class Cruscotto {
     const [pl, pr] = geoF;
     const yA = yAltoF, yB = yBassoF;
     const x = (p, y) => polyval(p, y);
-    // trapezio pieno
-    c.save();
-    c.beginPath();
-    c.moveTo(x(pl, yB), yB); c.lineTo(x(pl, yA), yA); c.lineTo(x(pr, yA), yA); c.lineTo(x(pr, yB), yB); c.closePath();
-    c.fillStyle = BLU_MARCHIO; c.globalAlpha = incerto ? ZONA_OPACITA_I : ZONA_OPACITA; c.fill();
-    // griglia, ritagliata nel trapezio
-    c.clip(); c.globalAlpha = 0.55; c.strokeStyle = col; c.lineWidth = k.K(1);
-    const bsA = x(pl, yA), bdA = x(pr, yA), bsB = x(pl, yB), bdB = x(pr, yB);
-    for (let i = 1; i <= GRIGLIA_TRASV; i++) {
-      if (incerto && i % 2) continue;
-      const y = yB + (yA - yB) * Math.pow(i / (GRIGLIA_TRASV + 1), 1.45);
-      c.beginPath(); c.moveTo(x(pl, y), y); c.lineTo(x(pr, y), y); c.stroke();
+    const linee = this.cfg.stile !== 'area' && curve;
+    if (linee) this.lineeGuida(curve, yAltoF, yBassoF, col, stato);
+    else {
+      // trapezio pieno
+      c.save();
+      c.beginPath();
+      c.moveTo(x(pl, yB), yB); c.lineTo(x(pl, yA), yA); c.lineTo(x(pr, yA), yA); c.lineTo(x(pr, yB), yB); c.closePath();
+      c.fillStyle = BLU_MARCHIO; c.globalAlpha = incerto ? ZONA_OPACITA_I : ZONA_OPACITA; c.fill();
+      // griglia, ritagliata nel trapezio
+      c.clip(); c.globalAlpha = 0.55; c.strokeStyle = col; c.lineWidth = k.K(1);
+      const bsA = x(pl, yA), bdA = x(pr, yA), bsB = x(pl, yB), bdB = x(pr, yB);
+      for (let i = 1; i <= GRIGLIA_TRASV; i++) {
+        if (incerto && i % 2) continue;
+        const y = yB + (yA - yB) * Math.pow(i / (GRIGLIA_TRASV + 1), 1.45);
+        c.beginPath(); c.moveTo(x(pl, y), y); c.lineTo(x(pr, y), y); c.stroke();
+      }
+      for (let i = 1; i < GRIGLIA_LONG; i++) {
+        const t = i / GRIGLIA_LONG;
+        c.beginPath(); c.moveTo(bsB + (bdB - bsB) * t, yB); c.lineTo(bsA + (bdA - bsA) * t, yA); c.stroke();
+      }
+      c.restore();
     }
-    for (let i = 1; i < GRIGLIA_LONG; i++) {
-      const t = i / GRIGLIA_LONG;
-      c.beginPath(); c.moveTo(bsB + (bdB - bsB) * t, yB); c.lineTo(bsA + (bdA - bsA) * t, yA); c.stroke();
-    }
-    c.restore();
     // righello alla riga di misura
     const yref = Math.round(Math.min(Math.max(RIGA_RIGHELLO * Hf, this.testataH + k.K(50)),
                                      Hf - this.piedeH - k.K(40)));
@@ -113,6 +117,46 @@ export class Cruscotto {
     const cmPx = this.cfg.corridoioCm ? this.cfg.corridoioCm / largh : null;
     this.righello(col, yref, bs, bd, centro, cmPx);
     return { cmPx, centroCorr: centro, largh };
+  }
+
+  // Stile «assistente di linea»: due curve laterali e una mezzeria tratteggiata di colore diverso,
+  // che piegano come il sentiero visto dal modello. Si assottigliano con la distanza.
+  lineeGuida(curve, yAltoF, yBassoF, col, stato) {
+    const c = this.ctx, { w: Wf, h: Hf } = this.dim, K = v => this.K(v);
+    const { cv, util, rette, yrefT } = curve, { oy, nh } = util, syf = Hf / nh;
+    const larghT = polyval(rette[1], yrefT) - polyval(rette[0], yrefT);
+    const spanT = Math.max(Math.abs(yBassoF / syf + oy - yrefT), Math.abs(yAltoF / syf + oy - yrefT));
+    const cl = cv.map(q => ({ ...q, c2: limitaCurvatura(q.c2, spanT, larghT) }));
+    const N = 44, ys = [];                                  // passo che si infittisce verso l'alto: la prospettiva
+    const yB = Math.min(Hf, yBassoF + K(6));
+    for (let i = 0; i < N; i++) ys.push(yB + (yAltoF - yB) * (1 - Math.pow(1 - i / (N - 1), 1.6)));
+    const pts = { sx: [], dx: [], mid: [] };
+    for (const y of ys) {
+      const q = curveFotogramma(cl, util, Wf, Hf, yrefT, y, y, 1);
+      pts.sx.push(q.sx[0]); pts.dx.push(q.dx[0]); pts.mid.push(q.mid[0]);
+    }
+    const att = stato !== 'ok' ? 0.6 : 1;
+    // Tinta piena e punte piatte: i segmenti trasparenti sovrapposti darebbero un effetto «a perline».
+    // Prima tutti i contorni scuri, poi i colori, così i giunti non si vedono. Lo spessore cala con la distanza.
+    const tratto = (P, colore, w0, w1, saltaDispari) => {
+      c.lineCap = 'butt'; c.globalAlpha = att;
+      const seg = (i, w, stile) => {
+        c.strokeStyle = stile; c.lineWidth = w;
+        c.beginPath(); c.moveTo(P[i][0], P[i][1]); c.lineTo(P[i + 1][0], P[i + 1][1]); c.stroke();
+      };
+      for (let i = 0; i < N - 1; i++) if (!(saltaDispari && i % 2)) seg(i, K(w0 + (w1 - w0) * i / (N - 2)) + K(3), 'rgba(6,8,10,0.7)');
+      for (let i = 0; i < N - 1; i++) if (!(saltaDispari && i % 2)) seg(i, K(w0 + (w1 - w0) * i / (N - 2)), colore);
+      c.globalAlpha = 1;
+    };
+    // tacche trasversali (come le barre di distanza di una retrocamera)
+    for (const t of [0.14, 0.34, 0.54, 0.72]) {
+      const i = Math.round(t * (N - 1)), a = pts.sx[i], b = pts.dx[i];
+      c.globalAlpha = 0.55 * att; c.strokeStyle = col; c.lineWidth = K(2);
+      c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke(); c.globalAlpha = 1;
+    }
+    tratto(pts.sx, col, 7, 2.5, false);
+    tratto(pts.dx, col, 7, 2.5, false);
+    tratto(pts.mid, C_BIANCO, 5, 2, true);            // mezzeria tratteggiata, colore diverso
   }
 
   righello(col, yref, bs, bd, centroCorr, cmPx) {
@@ -302,7 +346,7 @@ export class Cruscotto {
     this.piedeH = h - this.geomConsole().yc0;
     this.squadre(col);
     this.testata(v.stato);
-    const z = this.zona(v.maskCanvas, v.geoF, v.yAltoF, v.yBassoF, v.stato, v.areaMask);
+    const z = this.zona(v.maskCanvas, v.geoF, v.yAltoF, v.yBassoF, v.stato, v.areaMask, v.curve || null);
     // asse della macchina: unica riga verticale a metà fotogramma
     const c = this.ctx;
     this.linea((w - 1) / 2, this.K(96), (w - 1) / 2, h - this.K(40), 'rgb(18,14,10)', this.K(3));

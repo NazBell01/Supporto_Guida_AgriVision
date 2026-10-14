@@ -6,10 +6,11 @@ import numpy as np
 import onnxruntime as ort
 
 from . import nucleo as N
+from . import linee
 
 
 class Guidatore:
-    def __init__(self, percorso_onnx, corridoio_cm, larghezza, thread=0, logo=""):
+    def __init__(self, percorso_onnx, corridoio_cm, larghezza, thread=0, logo="", stile="linee"):
         opz = ort.SessionOptions()
         if thread:
             opz.intra_op_num_threads = thread
@@ -20,6 +21,8 @@ class Guidatore:
             raise ValueError(f"il modello attende {dim[3]}x{dim[2]}, il simulatore {N.GUIDA_DIM[0]}x{N.GUIDA_DIM[1]}")
         self.origine_logo = N.configura(self.sessione, corridoio_cm, larghezza, logo)
         self.corridoio_cm = corridoio_cm
+        # stile della guida: «linee» (assistente di linea, curve) o «area» (trapezio e griglia del notebook)
+        self.disegna_zona = linee.disegna_corridoio_linee if stile == "linee" else N.disegna_corridoio
         self.N = N
 
         self.fps_proc = 8.0                                   # stima iniziale, poi misurata
@@ -70,7 +73,7 @@ class Guidatore:
                    misura=None if misura is None else round(float(misura), 2), stato=stato)
         self.registro.append(rec)
 
-        frame, cm_px, centro_corr_x, largh_px = N.disegna_corridoio(frame, maschera, geo, stato)
+        frame, cm_px, centro_corr_x, largh_px = self.disegna_zona(frame, maschera, geo, stato)
 
         # affidabilità geometrica e stima della larghezza, come nel notebook
         if largh_px is None:

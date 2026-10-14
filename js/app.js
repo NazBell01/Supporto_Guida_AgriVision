@@ -5,7 +5,7 @@
 
 import { CONFIG } from './config.js';
 import {
-  GUIDA_DIM, rettangoloUtile, normalizza, maschera, analizzaMaschera,
+  curveBordi, GUIDA_DIM, rettangoloUtile, normalizza, maschera, analizzaMaschera,
   rettePerFotogramma, statoMisura, Righello, mediana,
 } from './geometria.js';
 import { Cruscotto } from './disegno.js';
@@ -19,7 +19,7 @@ const memoria = {
   leggi() { try { return JSON.parse(localStorage.getItem('agrivision') || '{}'); } catch { return {}; } },
   scrivi(o) { try { localStorage.setItem('agrivision', JSON.stringify(o)); } catch { /* modalità privata */ } },
 };
-const prefs = { corridoioCm: CONFIG.corridoioCm, soglia: CONFIG.soglia, modo: 'vigna',
+const prefs = { corridoioCm: CONFIG.corridoioCm, soglia: CONFIG.soglia, modo: 'vigna', stile: 'linee',
                 altezzaM: null, inclinazione: null, hfov: PARAM_GEN.hfovGradi, ...memoria.leggi() };
 // Un modello per modalità: vigna = segmentazione del corridoio, generale = profondità (MiDaS small).
 const MODELLI = {
@@ -46,6 +46,7 @@ const piccoloG = document.createElement('canvas'); piccoloG.width = 256; piccolo
 const pctxG = piccoloG.getContext('2d', { willReadFrequently: true });
 const tensoreG = new Float32Array(3 * 256 * 256);
 const cruscotto = new Cruscotto(ctx, { ...CONFIG, ...prefs });
+let cvPrec = null;       // curve dei bordi del fotogramma precedente, per lisciarle
 
 // ------------------------------------------------------------------- UI -----
 function errore(msg) { const e = $('errore'); e.hidden = !msg; e.textContent = msg || ''; }
@@ -66,7 +67,10 @@ $('in-cm').addEventListener('change', e => {
 $('in-soglia').addEventListener('change', e => {
   const v = parseFloat(e.target.value); if (v > 0) { prefs.soglia = v; memoria.scrivi(prefs); applicaPrefs(); }
 });
-function applicaPrefs() { Object.assign(cruscotto.cfg, { corridoioCm: prefs.corridoioCm, soglia: prefs.soglia }); }
+function applicaPrefs() { Object.assign(cruscotto.cfg, { corridoioCm: prefs.corridoioCm, soglia: prefs.soglia, stile: prefs.stile }); }
+$('in-stile').value = prefs.stile;
+$('in-stile').addEventListener('change', e => { prefs.stile = e.target.value; memoria.scrivi(prefs); applicaPrefs(); });
+applicaPrefs();
 
 // Il logo è facoltativo: se logo.png non c'è, il cruscotto scrive il nome.
 {
@@ -297,8 +301,16 @@ async function passo() {
     yA = (an.geo.yAlto - oy) * syf; yB = (an.geo.yBasso + 1 - oy) * syf;
   }
   aggiornaMaschera(m, util);
+  // curve dei bordi per lo stile «linee guida»: lisciate nel tempo (media esponenziale)
+  let curve = null;
+  if (an.geo && an.geo.bordi) {
+    let cv = curveBordi(an.geo.bordi, an.geo.rette, 0.95 * A);   // coordinate della tela del modello
+    cv = cvPrec ? cv.map((q, i) => ({ c0: cvPrec[i].c0 + 0.5 * (q.c0 - cvPrec[i].c0), c1: cvPrec[i].c1 + 0.5 * (q.c1 - cvPrec[i].c1),
+                                      c2: cvPrec[i].c2 + 0.5 * (q.c2 - cvPrec[i].c2) })) : cv;
+    cvPrec = cv; curve = { cv, util, rette: an.geo.rette, yrefT: 0.95 * A };
+  } else cvPrec = null;
   cruscotto.disegna(Wf, Hf, k, {
-    stato, geoF, yAltoF: yA, yBassoF: yB, maskCanvas, areaMask: { x: 0, y: 0, w: Wf, h: Hf },
+    stato, geoF, yAltoF: yA, yBassoF: yB, maskCanvas, areaMask: { x: 0, y: 0, w: Wf, h: Hf }, curve,
     dati: z => {
       // stima della larghezza: rapporto fra la larghezza di ora e quella tipica della
       // corsa (NON è una misura diretta: assume camera ad altezza e inclinazione costanti)

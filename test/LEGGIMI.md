@@ -17,3 +17,7 @@ destra/sinistra/al centro, muro vicino, parete di sbieco, telefono inclinato, ca
 profondità **vere** prodotte da MiDaS su foto reali (`profondita_reali.json`): libri su un pavimento
 (deve vedere gli ostacoli e indicare il libero), facciata di un palazzo e primo piano di una pianta
 (non devono dare una via libera inventata). `node test/generale.mjs`.
+
+**`curve.mjs`** — prove della curvatura dei bordi per lo stile «linee guida»: corridoio dritto (curvatura ≈ 0),
+sentiero che piega a destra e a sinistra (curvatura del segno giusto e vicina al valore vero, anche con rumore sulla
+maschera), limite alla curvatura. `video_curva.py` genera un video sintetico con un sentiero che curva, per provarlo a occhio.

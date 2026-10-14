@@ -67,3 +67,13 @@ Nessun addestramento. **Limiti, tutti da conoscere:**
 - Nessuna validazione sul tuo terreno: lo scarto in cm della modalità vigna ha un errore misurato, questa no.
 - Ausilio, non un comando: per evitare ostacoli su una macchina vera servono sensori dedicati e un arresto
   indipendente dal telefono.
+
+## Stile della guida: linee o area
+
+Nelle impostazioni (modalità Vigna) si sceglie lo **stile della guida**. *Linee guida* (predefinito) disegna come una
+retrocamera: due curve laterali e una mezzeria tratteggiata bianca che piegano seguendo il sentiero visto dal modello,
+con qualche tacca trasversale; si assottigliano con la distanza. *Area* è il trapezio con la griglia di prima, che resta
+sempre dritto. Le curve sono adattate ai bordi della maschera (una parabola per bordo, partendo dalla retta del notebook);
+dove il corridoio è dritto coincidono con la retta. **Lo scarto in cm è sempre quello del notebook**: la curva è grafica,
+non una misura nuova. Dove il sentiero piega molto, la retta con cui si misura lo scarto è un'approssimazione e la curva
+mostra la forma reale. Se la maschera è povera il disegno ricade su due rette.

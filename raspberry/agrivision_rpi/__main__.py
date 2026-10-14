@@ -23,6 +23,8 @@ def argomenti():
     p.add_argument("--altezza", type=int, default=0, help="altezza richiesta alla camera (default 16:9 dalla larghezza)")
     p.add_argument("--corridoio-cm", type=float, default=200.0,
                    help="larghezza reale del corridoio in cm (default 200, Vigna94); 0 = scala non misurata")
+    p.add_argument("--stile", choices=["linee", "area"], default="linee",
+                   help="linee = assistente di linea con curve laterali e mezzeria (default); area = trapezio e griglia del notebook")
     p.add_argument("--thread", type=int, default=0, help="thread di onnxruntime (0 = automatico)")
     p.add_argument("--stream", type=int, default=0, metavar="PORTA", help="pagina web con il video, es. 8080")
     p.add_argument("--finestra", action="store_true", help="mostra una finestra (serve uno schermo collegato)")
@@ -51,7 +53,7 @@ def principale():
     W, H = w, h
     print(f"lavoro a {W}x{H}")
 
-    g = Guidatore(a.modello, corr, W, a.thread, a.logo)
+    g = Guidatore(a.modello, corr, W, a.thread, a.logo, a.stile)
     print(f"modello: {a.modello} · scala: {'%.0f cm' % corr if corr else 'NON misurata (pixel)'} · "
           f"marchio: {g.origine_logo}")
     print(f"rete: {g.ms_rete:.0f} ms (riscaldata)" if g.ms_rete else "")

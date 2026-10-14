@@ -26,6 +26,8 @@ jobs:
         run: node test/confronta.mjs
       - name: Modalità generale (scene sintetiche e profondità vere)
         run: node test/generale.mjs
+      - name: Curvatura dei bordi (stile linee guida)
+        run: node test/curve.mjs
 
   deploy:
     needs: test
