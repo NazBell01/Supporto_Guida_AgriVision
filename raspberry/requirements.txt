@@ -1,0 +1,4 @@
+# Installati da installa.sh dentro .venv (che vede anche i pacchetti di sistema: opencv, picamera2).
+# numpy<2: python3-opencv di Raspberry Pi OS è compilato per numpy 1.x.
+numpy<2
+onnxruntime

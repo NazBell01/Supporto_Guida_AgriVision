@@ -1,2 +1,6 @@
 modelli/*.onnx
 !modelli/profondita.onnx
+__pycache__/
+.venv/
+raspberry/**/*.onnx
+raspberry/registri/
