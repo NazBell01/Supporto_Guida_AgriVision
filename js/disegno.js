@@ -3,7 +3,7 @@
 // Coordinate in pixel CSS del canvas; `k` scala le misure del notebook (pensate
 // per fotogrammi da ~1280x720) sullo schermo del telefono.
 
-import { polyval, puntiNastro } from './geometria.js';
+import { polyval, puntiNastro, estremoLontano } from './geometria.js';
 
 // Palette del marchio (RGB). Blu pieno per i riempimenti, schiarito per linee e testo.
 const BLU_MARCHIO = '#0B4080';
@@ -126,12 +126,7 @@ export class Cruscotto {
     const { par, util, rette, yrefT } = curve, { ox, oy, nw, nh } = util, sxf = Wf / nw, syf = Hf / nh;
     // righe della tela: dal basso (vicino) a dove la semilarghezza della retta del notebook si annulla (punto di fuga)
     const yAltoT = yAltoF / syf + oy, yBT = Math.min(Hf / syf + oy, yBassoF / syf + oy + K(6) / syf);
-    const hRef = (polyval(rette[1], yrefT) - polyval(rette[0], yrefT)) / 2;
-    let yaT = yAltoT;
-    for (let i = 0; i <= 200; i++) {
-      const y = yAltoT + (yBT - yAltoT) * i / 200;
-      if ((polyval(rette[1], y) - polyval(rette[0], y)) / 2 >= 0.12 * hRef) { yaT = y; break; }
-    }
+    const yaT = estremoLontano(rette, yrefT, yAltoT, yBT);
     const N = 44, ysT = [];                                 // passo che si infittisce verso l'alto: la prospettiva
     for (let i = 0; i < N; i++) ysT.push(yBT + (yaT - yBT) * (1 - Math.pow(1 - i / (N - 1), 1.6)));
     const q = puntiNastro(par, rette, ysT, yrefT);

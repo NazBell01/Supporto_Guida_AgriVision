@@ -59,26 +59,50 @@ def nastro_bordi(maschera, geo, yref, y_alto, y_basso, margine_bordo=0.02):
     h_nb = [(np.polyval(pr, yref) - np.polyval(pl, yref)) / 2, (pr[0] - pl[0]) / 2]
     centro = _fit_robusto(u, (sx[ok] + dx[ok]) / 2, c_nb, 2)
     semi = _fit_robusto(u, (dx[ok] - sx[ok]) / 2, h_nb, 1)
+    # Larghezza alla riga di riferimento in forte disaccordo con la retta validata del notebook: adattamento
+    # impazzito su una maschera molto sporca. Meglio nessun nastro, cioè linee dritte.
+    if not (0.5 * h_nb[0] < semi[0] < 1.5 * h_nb[0]):
+        return None
     return tuple(float(v) for v in centro), tuple(float(v) for v in semi)
 
 
 def punti_nastro(par, geo, ys, yref, quota_centro=0.5, banda_larghezza=(0.6, 1.4)):
     """Tre curve (sinistra, destra, mezzeria) alle righe `ys`, con i vincoli che le tengono sensate.
 
-    Rispetto alle rette del notebook (validate): la semilarghezza resta fra 0,6 e 1,4 volte quella della retta,
-    e il centro non si allontana dalla retta centrale più di `quota_centro` semilarghezze. Quindi le curve
-    piegano, ma non possono incrociarsi né fuggire via.
+    Rispetto alle rette del notebook (validate): il centro non si allontana più di `quota_centro` semilarghezze e la
+    semilarghezza resta fra 0,6 e 1,4 volte quella della retta. Il vincolo NON taglia la curva: se la deviazione stimata
+    lo supera in un punto, si SCALA l'intera deviazione dalla retta (stessa forma, più dritta). Tagliarla produceva uno
+    spigolo nel punto di saturazione: in lontananza la linea «si impennava» di colpo.
     """
     (c0, c1, c2), (h0, h1) = par
     pl, pr = geo
-    u = np.asarray(ys, float) - yref
-    h_nb = (np.polyval(pr, ys) - np.polyval(pl, ys)) / 2
+    ys = np.asarray(ys, float)
+    u = ys - yref
+    h_nb = np.maximum((np.polyval(pr, ys) - np.polyval(pl, ys)) / 2, 2.0)
     c_nb = (np.polyval(pl, ys) + np.polyval(pr, ys)) / 2
-    h = np.clip(h0 + h1 * u, banda_larghezza[0] * h_nb, banda_larghezza[1] * h_nb)
-    h = np.maximum(h, 2.0)
-    c = c0 + c1 * u + c2 * u * u
-    c = np.clip(c, c_nb - quota_centro * h_nb, c_nb + quota_centro * h_nb)
+    dev_c = c0 + c1 * u + c2 * u * u - c_nb
+    dev_h = (h0 + h1 * u) / h_nb - 1.0
+    s_c = float(min(1.0, np.min(quota_centro * h_nb / np.maximum(np.abs(dev_c), 1e-9))))
+    s_h = 1.0
+    if (dev_h > 1e-9).any():
+        s_h = min(s_h, float(np.min((banda_larghezza[1] - 1) / dev_h[dev_h > 1e-9])))
+    if (dev_h < -1e-9).any():
+        s_h = min(s_h, float(np.min((1 - banda_larghezza[0]) / -dev_h[dev_h < -1e-9])))
+    c = c_nb + s_c * dev_c
+    h = np.maximum(h_nb * (1 + s_h * dev_h), 2.0)
     return c - h, c + h, c
+
+
+def estremo_lontano(geo, yref, y_alto, y_basso, quota=0.15):
+    """Fin dove si disegnano le linee in lontananza: la prima riga, dall'alto, in cui la semilarghezza della retta del
+    notebook è almeno `quota` volte quella alla riga di riferimento. Più su i bordi convergono nel punto di fuga e la
+    maschera non è affidabile (fogliame, cielo): lì le linee non si disegnano."""
+    pl, pr = geo
+    h_ref = (np.polyval(pr, yref) - np.polyval(pl, yref)) / 2
+    for y in np.linspace(y_alto, y_basso, 201):
+        if (np.polyval(pr, y) - np.polyval(pl, y)) / 2 >= quota * h_ref:
+            return float(y)
+    return float(y_alto)
 
 
 def _tratto(f, P, colore, w0, w1, salta_dispari=False, k=1.0):
@@ -140,12 +164,7 @@ def disegna_corridoio_linee(f, maschera, geo, stato):
     # Si ferma dove la retta del notebook darebbe una semilarghezza quasi nulla (punto di fuga).
     n = 44
     yb = min(Hf - 1.0, y_basso + N._k(6))
-    h_ref = (np.polyval(pr, yref) - np.polyval(pl, yref)) / 2
-    ya = y_alto
-    for y_try in np.linspace(y_alto, yb, 200):
-        if (np.polyval(pr, y_try) - np.polyval(pl, y_try)) / 2 >= 0.12 * h_ref:
-            ya = y_try
-            break
+    ya = estremo_lontano(geo, yref, y_alto, yb)
     ys = np.array([yb + (ya - yb) * (1 - (1 - i / (n - 1)) ** 1.6) for i in range(n)])
     xl, xr, xm = punti_nastro(par, geo, ys, yref)
     L = [(int(round(a)), int(round(y))) for a, y in zip(xl, ys)]

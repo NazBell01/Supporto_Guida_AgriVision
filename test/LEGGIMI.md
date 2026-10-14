@@ -20,5 +20,5 @@ profondità **vere** prodotte da MiDaS su foto reali (`profondita_reali.json`): 
 
 **`curve.mjs`** — prove dello stile «linee guida» (nastro): fedeltà su sentieri puliti (dritto, curvo da un lato e dall'altro, con
 rumore: curvatura vera ritrovata e bordi sulla maschera) e robustezza su 600 maschere **sporche** (morsi di fogliame, buchi,
-rumore): le due curve non si incrociano mai. `video_curva.py` e `video_zigzag.py` generano video sintetici (un sentiero che
+rumore): le due curve non si incrociano mai e nessuna linea ha uno spigolo oltre 25° (la linea non «si impenna» in lontananza). `video_curva.py` e `video_zigzag.py` generano video sintetici (un sentiero che
 curva; una camera che oscilla con ostacoli sul bordo) per provarlo a occhio.

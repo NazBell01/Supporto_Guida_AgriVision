@@ -213,21 +213,52 @@ export function nastroBordi(bordi, rette, yrefT) {
   const u = righe.map(y => y - yrefT);
   const cNb = [(polyval(pl, yrefT) + polyval(pr, yrefT)) / 2, (pl[0] + pr[0]) / 2, 0];
   const hNb = [(polyval(pr, yrefT) - polyval(pl, yrefT)) / 2, (pr[0] - pl[0]) / 2];
-  return {
+  const par = {
     c: fitRobusto(u, righe.map(y => (bordi.sx[y] + bordi.dx[y]) / 2), cNb, 2),
     h: fitRobusto(u, righe.map(y => (bordi.dx[y] - bordi.sx[y]) / 2), hNb, 1),
   };
+  // Un nastro la cui larghezza alla riga di riferimento è in forte disaccordo con la retta validata del notebook non
+  // è affidabile (adattamento impazzito su una maschera molto sporca): meglio nessun nastro, cioè linee dritte.
+  if (!(par.h[0] > 0.5 * hNb[0] && par.h[0] < 1.5 * hNb[0])) return null;
+  return par;
 }
 
 // Tre curve (sinistra, destra, mezzeria) alle righe `ys` della tela, con i vincoli che le tengono sensate.
+//
+// Rispetto alle rette del notebook (validate) il centro non si allontana più di `quotaCentro` semilarghezze e la
+// semilarghezza resta fra `banda[0]` e `banda[1]` volte quella della retta. Il vincolo NON taglia la curva: se la
+// deviazione stimata lo supera in un punto, si SCALA l'intera deviazione dalla retta (stessa forma, più dritta).
+// Tagliarla, come si faceva prima, produceva uno spigolo nel punto di saturazione: in lontananza la linea
+// «si impennava» di colpo.
 export function puntiNastro(par, rette, ys, yrefT, quotaCentro = 0.5, banda = [0.6, 1.4]) {
-  const [pl, pr] = rette, xl = [], xr = [], xm = [];
-  for (const y of ys) {
-    const u = y - yrefT;
-    const hNb = (polyval(pr, y) - polyval(pl, y)) / 2, cNb = (polyval(pl, y) + polyval(pr, y)) / 2;
-    const h = Math.max(Math.min(Math.max(par.h[0] + par.h[1] * u, banda[0] * hNb), banda[1] * hNb), 0.7);
-    const c = Math.min(Math.max(par.c[0] + par.c[1] * u + par.c[2] * u * u, cNb - quotaCentro * hNb), cNb + quotaCentro * hNb);
+  const [pl, pr] = rette, n = ys.length;
+  const hNb = new Array(n), cNb = new Array(n), devC = new Array(n), devH = new Array(n);
+  let sC = 1, sH = 1;
+  for (let i = 0; i < n; i++) {
+    const y = ys[i], u = y - yrefT;
+    hNb[i] = Math.max((polyval(pr, y) - polyval(pl, y)) / 2, 0.7); cNb[i] = (polyval(pl, y) + polyval(pr, y)) / 2;
+    devC[i] = par.c[0] + par.c[1] * u + par.c[2] * u * u - cNb[i];
+    devH[i] = (par.h[0] + par.h[1] * u) / hNb[i] - 1;
+    if (Math.abs(devC[i]) > 1e-9) sC = Math.min(sC, quotaCentro * hNb[i] / Math.abs(devC[i]));
+    if (devH[i] > 1e-9) sH = Math.min(sH, (banda[1] - 1) / devH[i]);
+    if (devH[i] < -1e-9) sH = Math.min(sH, (1 - banda[0]) / -devH[i]);
+  }
+  const xl = [], xr = [], xm = [];
+  for (let i = 0; i < n; i++) {
+    const c = cNb[i] + sC * devC[i], h = Math.max(hNb[i] * (1 + sH * devH[i]), 0.7);
     xl.push(c - h); xr.push(c + h); xm.push(c);
   }
   return { xl, xr, xm };
+}
+
+// Fin dove si disegnano le linee in lontananza: la prima riga, dall'alto, in cui la semilarghezza della retta del
+// notebook è almeno `quota` volte quella alla riga di riferimento. Più su i bordi convergono nel punto di fuga e la
+// maschera non è affidabile (fogliame, cielo): lì le linee non si disegnano.
+export function estremoLontano(rette, yrefT, yAlto, yBasso, quota = 0.15) {
+  const [pl, pr] = rette, hRef = (polyval(pr, yrefT) - polyval(pl, yrefT)) / 2;
+  for (let i = 0; i <= 200; i++) {
+    const y = yAlto + (yBasso - yAlto) * i / 200;
+    if ((polyval(pr, y) - polyval(pl, y)) / 2 >= quota * hRef) return y;
+  }
+  return yAlto;
 }

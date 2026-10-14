@@ -78,6 +78,6 @@ sono la linea centrale ∓ la semilarghezza. Per questo piegano **insieme**, com
 possono incrociarsi**. Parametri adattati alla maschera del modello, vincolati alle rette del notebook (validate): larghezza
 fra 0,6 e 1,4 volte quella della retta, centro entro mezza semilarghezza; lisciati nel tempo perché la traiettoria non salti
 da un fotogramma all'altro. Dove il corridoio è dritto coincidono con le rette. **Lo scarto in cm è sempre quello del
-notebook**: le curve sono grafica, non una misura nuova. Se la maschera è povera il disegno ricade su un nastro dritto.
+notebook**: le curve sono grafica, non una misura nuova. Il vincolo non taglia la curva (il taglio creava uno spigolo in lontananza, la linea «si impennava»): se la deviazione lo supera, la si scala, quindi la forma resta liscia e al più diventa più dritta. Le linee non si disegnano oltre il punto in cui i bordi convergono. Se la maschera è povera, o il nastro stimato è in forte disaccordo con la retta del notebook, il disegno ricade su un nastro dritto.
 La versione precedente adattava ogni bordo da solo e su maschere sporche le curve si incrociavano nel 35% dei casi; ora zero,
 su 600 maschere sporche (morsi di fogliame, buchi, rumore) in entrambe le versioni.

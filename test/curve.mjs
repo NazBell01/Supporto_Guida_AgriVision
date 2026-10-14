@@ -1,23 +1,12 @@
 // Prove dello stile «linee guida» (nastro: linea centrale che flette + semilarghezza in prospettiva):
 //  1. fedeltà su sentieri puliti: ritrova la curvatura vera e i bordi cadono sulla maschera;
 //  2. robustezza su maschere SPORCHE (morsi di fogliame, buchi, rumore): le due curve non si incrociano mai.
-import { geometriaCorridoio, nastroBordi, puntiNastro } from '../js/geometria.js';
-const L = 320, A = 192, yref = 0.95 * A;
+import { geometriaCorridoio, nastroBordi, puntiNastro, estremoLontano } from '../js/geometria.js';
+import { L, A, yref, pulita, sporca } from './maschere.mjs';
 let falliti = 0;
 const prova = (n, ok, i = '') => { console.log(`${ok ? '✓' : '✗'} ${n} ${i}`); if (!ok) falliti++; };
-let seed = 5; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5;   // [-0.5, 0.5)
-const norm = () => (rnd() + rnd() + rnd() + rnd()) * 1.7;                                  // ~gaussiana, sigma ≈ 1
 
 // ---- 1. sentieri puliti ---------------------------------------------------------------------
-function pulita(k0, rumore = 0) {
-  const m = new Uint8Array(L * A);
-  for (let y = 40; y < A; y++) {
-    const t = (y - 40) / (A - 41), c = 160 + k0 * (y - yref) ** 2, h = 30 + 70 * t;
-    const a = Math.max(0, Math.round(c - h + rumore * norm())), b = Math.min(L - 1, Math.round(c + h + rumore * norm()));
-    for (let x = a; x <= b; x++) m[y * L + x] = 1;
-  }
-  return m;
-}
 const stima = m => { const g = geometriaCorridoio(m, L, A); return { g, par: nastroBordi(g.bordi, g.rette, yref) }; };
 const v = 0.0040;
 for (const [k0, nome] of [[0, 'dritto'], [v, 'da un lato'], [-v, "dall'altro lato"]]) {
@@ -35,24 +24,6 @@ for (const [k0, nome] of [[0, 'dritto'], [v, 'da un lato'], [-v, "dall'altro lat
 { const { par } = stima(pulita(v, 1.4)); prova('con rumore la curvatura resta riconoscibile', Math.abs(par.c[2] - v) < 0.45 * v, `(${par.c[2].toFixed(5)})`); }
 
 // ---- 2. maschere sporche --------------------------------------------------------------------
-function sporca() {
-  const m = new Uint8Array(L * A), yaw = (rnd() * 2) * 40, top = Math.round(43 + 22 * (rnd() + 0.5));
-  for (let y = top; y < A; y++) {
-    const t = (y - top) / (A - top), c = 160 + yaw * (1 - t) * 0.6, h = 20 + 100 * t;
-    const a = Math.max(0, Math.round(c - h + norm())), b = Math.min(L - 1, Math.round(c + h + norm()));
-    for (let x = a; x <= b; x++) m[y * L + x] = 1;
-  }
-  const morsi = 1 + Math.floor((rnd() + 0.5) * 4);
-  for (let k = 0; k < morsi; k++) {                                // morsi di fogliame da un lato
-    const y0 = Math.round(top + (rnd() + 0.5) * (A - top - 28)), hh = Math.round(13 + (rnd() + 0.5) * 60), prof = Math.round(20 + (rnd() + 0.5) * 100);
-    const sin = rnd() < 0, xa = sin ? 0 : Math.round(160 + yaw + 20 - prof), xb = sin ? Math.round(160 + yaw - 20 + prof) : L;
-    for (let y = y0; y < Math.min(A, y0 + hh); y++) for (let x = Math.max(0, xa); x < Math.min(L, xb); x++) m[y * L + x] = 0;
-  }
-  const buchi = Math.floor((rnd() + 0.5) * 30);
-  for (let k = 0; k < buchi; k++) { const x = Math.round(33 + (rnd() + 0.5) * 250), y = Math.round(top + (rnd() + 0.5) * (A - top - 8));
-    for (let yy = y; yy < Math.min(A, y + 4); yy++) for (let xx = x; xx < x + 7; xx++) m[yy * L + xx] = 0; }
-  return m;
-}
 let n = 0, incroci = 0, minW = 1e9;
 for (let i = 0; i < 600; i++) {
   const g = geometriaCorridoio(sporca(), L, A); if (!g) continue;
@@ -63,4 +34,25 @@ for (let i = 0; i < 600; i++) {
   const w = Math.min(...q.xr.map((x, j) => x - q.xl[j])); minW = Math.min(minW, w); if (w <= 0) incroci++;
 }
 prova('600 maschere sporche: le curve non si incrociano mai', n > 250 && incroci === 0, `(${n} valutate, incroci ${incroci}, larghezza minima ${minW.toFixed(1)} px su 320)`);
+
+// ---- 3. nessuno spigolo: la linea non «si impenna» in lontananza ---------------------------------
+function svolta(P) {
+  let mx = 0;
+  for (let i = 1; i < P.length - 1; i++) {
+    const a = Math.atan2(P[i][1] - P[i - 1][1], P[i][0] - P[i - 1][0]), b = Math.atan2(P[i + 1][1] - P[i][1], P[i + 1][0] - P[i][0]);
+    let d = Math.abs(b - a) * 180 / Math.PI; if (d > 180) d = 360 - d; mx = Math.max(mx, d);
+  }
+  return mx;
+}
+let n3 = 0, spigoli = 0, somma = 0;
+for (let i = 0; i < 600; i++) {
+  const g = geometriaCorridoio(sporca(), L, A); if (!g) continue;
+  const par = nastroBordi(g.bordi, g.rette, yref); if (!par) continue;
+  const ya = estremoLontano(g.rette, yref, g.yAlto, g.yBasso), ys = [];       // lo stesso taglio che usa il disegno
+  for (let k = 0; k < 44; k++) ys.push(g.yBasso + 6 + (ya - g.yBasso - 6) * (1 - Math.pow(1 - k / 43, 1.6)));
+  const q = puntiNastro(par, g.rette, ys, yref);
+  const mx = Math.max(svolta(ys.map((y, k) => [q.xl[k], y])), svolta(ys.map((y, k) => [q.xr[k], y])), svolta(ys.map((y, k) => [q.xm[k], y])));
+  n3++; somma += mx; if (mx > 25) spigoli++;
+}
+prova('600 maschere sporche: nessuna linea con uno spigolo oltre 25°', n3 > 250 && spigoli === 0, `(${n3} valutate, con spigolo ${spigoli}, svolta massima media ${(somma / n3).toFixed(1)}°)`);
 console.log(falliti ? `\n${falliti} prove fallite` : '\ntutte le prove passano'); process.exit(falliti ? 1 : 0);

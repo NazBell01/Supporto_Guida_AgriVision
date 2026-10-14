@@ -5,7 +5,7 @@
 Uso:  PYTHONPATH=. python3 test_curve.py   (servono solo numpy e opencv)"""
 import sys
 import numpy as np
-from agrivision_rpi.linee import nastro_bordi, punti_nastro
+from agrivision_rpi.linee import nastro_bordi, punti_nastro, estremo_lontano
 
 W, H = 960, 540
 yref = int(0.72 * H)
@@ -84,6 +84,29 @@ for _ in range(600):
     xl, xr, _ = punti_nastro(par, geo, np.linspace(ys.min(), ys.max() + 6, 60), yref)
     w = xr - xl; minw = min(minw, w.min()); incroci += int((w <= 0).any())
 prova("600 maschere sporche: le curve non si incrociano mai", n > 300 and incroci == 0, f"({n} valutate, incroci {incroci}, larghezza minima {minw:.0f} px)")
+
+
+
+# ---- 3. nessuno spigolo: la linea non «si impenna» in lontananza ------------------------------------
+def svolta_max(xs, ys):
+    P = np.c_[xs, ys]; d = np.diff(P, axis=0); a = np.arctan2(d[:, 1], d[:, 0])
+    return float(np.degrees(np.abs(np.angle(np.exp(1j * np.diff(a))))).max())
+
+
+rng = np.random.default_rng(3); n = spigoli = 0; media = 0.0
+for _ in range(600):
+    m = sporca(rng); geo = retta_notebook(m)
+    if geo is None: continue
+    ys = np.flatnonzero(m.any(1)); par = nastro_bordi(m, geo, yref, ys.min(), ys.max())
+    if par is None: continue
+    n += 1
+    ya = estremo_lontano(geo, yref, ys.min(), ys.max())                 # lo stesso taglio che usa il disegno
+    campioni = np.array([ys.max() + 6 + (ya - ys.max() - 6) * (1 - (1 - i / 43) ** 1.6) for i in range(44)])
+    xl, xr, xm = punti_nastro(par, geo, campioni, yref)
+    mx = max(svolta_max(xl, campioni), svolta_max(xr, campioni), svolta_max(xm, campioni))
+    media += mx; spigoli += int(mx > 25)
+prova("600 maschere sporche: nessuna linea con uno spigolo oltre 25°", n > 300 and spigoli == 0,
+      f"({n} valutate, con spigolo {spigoli}, svolta massima media {media / n:.1f}°)")
 
 print("\ntutte le prove passano" if not falliti else f"\n{falliti} prove fallite")
 sys.exit(1 if falliti else 0)
