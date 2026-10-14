@@ -81,3 +81,7 @@ da un fotogramma all'altro. Dove il corridoio è dritto coincidono con le rette.
 notebook**: le curve sono grafica, non una misura nuova. Il vincolo non taglia la curva (il taglio creava uno spigolo in lontananza, la linea «si impennava»): se la deviazione lo supera, la si scala, quindi la forma resta liscia e al più diventa più dritta. Le linee non si disegnano oltre il punto in cui i bordi convergono. Se la maschera è povera, o il nastro stimato è in forte disaccordo con la retta del notebook, il disegno ricade su un nastro dritto.
 La versione precedente adattava ogni bordo da solo e su maschere sporche le curve si incrociavano nel 35% dei casi; ora zero,
 su 600 maschere sporche (morsi di fogliame, buchi, rumore) in entrambe le versioni.
+
+## Recap del progetto
+
+[`docs/RECAP_PROGETTO.md`](docs/RECAP_PROGETTO.md) riassume tutto il lavoro: cosa esiste, come si usa, cosa è stato verificato e cosa no, difetti trovati e corretti, limiti e prossimi passi.
