@@ -50,10 +50,14 @@ let cvPrec = null;       // curve dei bordi del fotogramma precedente, per lisci
 
 // ------------------------------------------------------------------- UI -----
 function errore(msg) { const e = $('errore'); e.hidden = !msg; e.textContent = msg || ''; }
-function avviso(msg, ms = 6000) {
+function avviso(msg, ms = 6000) {           // ms = 0: resta finché non lo si toglie
   const a = $('avviso'); a.textContent = msg; a.hidden = false;
-  clearTimeout(avviso.t); avviso.t = setTimeout(() => (a.hidden = true), ms);
+  clearTimeout(avviso.t); if (ms) avviso.t = setTimeout(() => (a.hidden = true), ms);
 }
+function togliAvviso() { clearTimeout(avviso.t); $('avviso').hidden = true; }
+// Un errore non intercettato non deve lasciare lo schermo nero senza dire niente.
+addEventListener('error', e => { if (S.attivo) avviso(`Errore: ${e.message}`, 0); });
+addEventListener('unhandledrejection', e => { if (S.attivo) avviso(`Errore: ${e.reason?.message || e.reason}`, 0); });
 function numero(v) { return String(v).replace('.', ','); }
 $('e-dentro').textContent = numero(CONFIG.erroreDentroCm);
 $('e-fuori').textContent = numero(CONFIG.erroreFuoriCm);
@@ -96,14 +100,14 @@ async function scaricaModello(url) {
   return buf;
 }
 
-async function creaSessione(buf, dim) {
+async function creaSessione(buf, dim, soloWasm = false) {
   ort.env.wasm.wasmPaths = new URL('vendor/ort/', document.baseURI).href;
   ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
   // ORT toglie da solo un provider non disponibile senza dirlo: si controlla qui, così
   // l'etichetta mostrata dice quello che gira davvero.
   let gpu = false;
   try { gpu = !!(navigator.gpu && await navigator.gpu.requestAdapter()); } catch { /* nessuna GPU */ }
-  const prove = (gpu ? [['webgpu', 'wasm']] : []).concat([['wasm']]);
+  const prove = (gpu && !soloWasm ? [['webgpu', 'wasm']] : []).concat([['wasm']]);
   let ultimo;
   for (const ep of prove) {
     try {
@@ -128,8 +132,18 @@ async function usaModello(buf, etichetta, modo) {
   if (dims && dims.length === 4 && typeof dims[2] === 'number' && (dims[2] !== M.dim[1] || dims[3] !== M.dim[0])) {
     throw new Error(`il modello attende ${dims[3]}×${dims[2]}, questa modalità ${M.dim[0]}×${M.dim[1]}`);
   }
-  S.sessioni[modo] = { sess, nomeIn, nomeOut: sess.outputNames[0], provider: S.provider, ms: S.msInf, etichetta };
+  S.sessioni[modo] = { sess, nomeIn, nomeOut: sess.outputNames[0], provider: S.provider, ms: S.msInf, etichetta, buf };
   if (modo === S.modo) mostraModello();
+}
+
+// Se la GPU del browser è lenta (accade con alcuni driver) si passa a WebAssembly, che con questi modelli piccoli è più prevedibile.
+async function passaAWasm() {
+  const m = S.sessioni[S.modo], M = MODELLI[S.modo];
+  avviso('La GPU del browser è lenta con questo modello: passo a WebAssembly…', 0);
+  const sess = await creaSessione(m.buf, M.dim, true);
+  Object.assign(m, { sess, nomeIn: sess.inputNames[0], nomeOut: sess.outputNames[0], provider: 'wasm', ms: S.msInf });
+  S.sess = sess; S.nomeIn = m.nomeIn; S.nomeOut = m.nomeOut; S.provider = 'wasm'; S.msInf = 0; S.lenti = 0;
+  togliAvviso();
 }
 
 function mostraModello() {
@@ -218,17 +232,23 @@ async function schermoAcceso() {
 }
 
 function partenza() {
-  S.attivo = true; S.pausa = false; S.storia = []; S.registro = []; S.largh = []; S.larghLunga = [];
+  S.attivo = true; S.primo = false; S.lenti = 0; S.pausa = false; S.storia = []; S.registro = []; S.largh = []; S.larghLunga = [];
   S.righello = new Righello(); S.t0 = performance.now(); S.precRotta = null;
   $('avvio').hidden = true; $('comandi').hidden = false; $('b-cam').hidden = S.daFile;
   schermoAcceso(); $('b-pausa').textContent = '❚❚';
   setTimeout(() => {
     if (S.vh > S.vw) avviso('Per la massima precisione tieni il telefono in orizzontale: il modello lavora su 320×192.');
   }, 800);
+  avviso('Analisi del primo fotogramma…', 0);
+  clearTimeout(S.attesa);
+  S.attesa = setTimeout(() => { if (S.attivo && !S.primo) avviso(
+    `Il primo fotogramma non è ancora pronto (${S.provider}, ${video.videoWidth}×${video.videoHeight}). Il modello è lento su questo dispositivo, ` +
+    `oppure c'è un errore: apri la console del browser (F12) e mandami il messaggio.`, 0); }, 6000);
   requestAnimationFrame(ciclo);
 }
 
 function chiudi() {
+  clearTimeout(S.attesa);
   S.attivo = false; fermaStream(); video.pause(); video.removeAttribute('src'); video.srcObject = null;
   try { S.wakeLock?.release(); } catch { /* */ }
   $('avvio').hidden = false; $('comandi').hidden = true; $('diag').hidden = true;
@@ -258,7 +278,7 @@ async function ciclo() {
   requestAnimationFrame(ciclo);
   if (S.pausa || S.occupato || video.readyState < 2 || !video.videoWidth) return;
   S.occupato = true;
-  try { await passo(); } catch (e) { console.error(e); avviso(`Errore: ${e.message}`); S.pausa = true; }
+  try { await passo(); } catch (e) { console.error(e); avviso(`Errore: ${e.message}`, 0); S.pausa = true; }
   finally { S.occupato = false; }
 }
 
@@ -330,6 +350,11 @@ async function passo() {
 }
 
 function diagnostica(vw, vh) {
+  if (!S.primo) { S.primo = true; clearTimeout(S.attesa); togliAvviso(); }
+  if (S.provider === 'webgpu') {            // GPU del browser troppo lenta per una rete così piccola: si ripiega su WebAssembly
+    S.lenti = S.msInf > 800 ? S.lenti + 1 : 0;
+    if (S.lenti >= 3) { S.pausa = true; passaAWasm().then(() => { S.pausa = false; }).catch(e => avviso(`Errore: ${e.message}`, 0)); }
+  }
   const n = performance.now();
   if (S.ultimoFps) S.fps = S.fps ? S.fps * 0.9 + (1000 / (n - S.ultimoFps)) * 0.1 : 1000 / (n - S.ultimoFps);
   S.ultimoFps = n;
