@@ -5,10 +5,11 @@
 
 import { CONFIG } from './config.js';
 import {
-  curveBordi, GUIDA_DIM, rettangoloUtile, normalizza, maschera, analizzaMaschera,
+  nastroBordi, GUIDA_DIM, rettangoloUtile, normalizza, maschera, analizzaMaschera,
   rettePerFotogramma, statoMisura, Righello, mediana,
 } from './geometria.js';
 import { Cruscotto } from './disegno.js';
+import { polyval } from './geometria.js';
 import { analizza as analizzaGenerale, normalizza as normalizzaProfondita, PARAM as PARAM_GEN } from './generale.js';
 
 const $ = id => document.getElementById(id);
@@ -46,7 +47,8 @@ const piccoloG = document.createElement('canvas'); piccoloG.width = 256; piccolo
 const pctxG = piccoloG.getContext('2d', { willReadFrequently: true });
 const tensoreG = new Float32Array(3 * 256 * 256);
 const cruscotto = new Cruscotto(ctx, { ...CONFIG, ...prefs });
-let cvPrec = null;       // curve dei bordi del fotogramma precedente, per lisciarle
+let cvPrec = null;       // nastro del fotogramma precedente, per lisciarlo
+const SMORZ = 0.35;      // peso del fotogramma nuovo nella media esponenziale (più basso = più stabile)
 
 // ------------------------------------------------------------------- UI -----
 function errore(msg) { const e = $('errore'); e.hidden = !msg; e.textContent = msg || ''; }
@@ -339,13 +341,20 @@ async function passo() {
     yA = (an.geo.yAlto - oy) * syf; yB = (an.geo.yBasso + 1 - oy) * syf;
   }
   aggiornaMaschera(m, util);
-  // curve dei bordi per lo stile «linee guida»: lisciate nel tempo (media esponenziale)
+  // nastro del sentiero per lo stile «linee guida»: lisciato nel tempo (media esponenziale) perché la
+  // traiettoria disegnata non salti da un fotogramma all'altro
   let curve = null;
+  const par0 = an.geo && an.geo.bordi ? nastroBordi(an.geo.bordi, an.geo.rette, 0.95 * A) : null;
   if (an.geo && an.geo.bordi) {
-    let cv = curveBordi(an.geo.bordi, an.geo.rette, 0.95 * A);   // coordinate della tela del modello
-    cv = cvPrec ? cv.map((q, i) => ({ c0: cvPrec[i].c0 + 0.5 * (q.c0 - cvPrec[i].c0), c1: cvPrec[i].c1 + 0.5 * (q.c1 - cvPrec[i].c1),
-                                      c2: cvPrec[i].c2 + 0.5 * (q.c2 - cvPrec[i].c2) })) : cv;
-    cvPrec = cv; curve = { cv, util, rette: an.geo.rette, yrefT: 0.95 * A };
+    const [pl, pr] = an.geo.rette, yr = 0.95 * A;
+    const dritto = { c: [(polyval(pl, yr) + polyval(pr, yr)) / 2, (pl[0] + pr[0]) / 2, 0],
+                     h: [(polyval(pr, yr) - polyval(pl, yr)) / 2, (pr[0] - pl[0]) / 2] };      // maschera povera: nastro dritto
+    let par = par0 || dritto;
+    if (cvPrec) {
+      const a = SMORZ, mix = (p, n) => p.map((v, i) => v + a * (n[i] - v));
+      par = { c: mix(cvPrec.c, par.c), h: mix(cvPrec.h, par.h) };
+    }
+    cvPrec = par; curve = { par, util, rette: an.geo.rette, yrefT: yr };
   } else cvPrec = null;
   cruscotto.disegna(Wf, Hf, k, {
     stato, geoF, yAltoF: yA, yBassoF: yB, maskCanvas, areaMask: { x: 0, y: 0, w: Wf, h: Hf }, curve,

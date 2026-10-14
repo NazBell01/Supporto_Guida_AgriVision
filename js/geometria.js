@@ -164,61 +164,70 @@ export function analizzaMaschera(m, righello, corridoioCm, dim = GUIDA_DIM) {
 export { rettaRobusta };
 
 // ----------------------------------------------------------- linee guida ----
-// Per l'«assistente di linea» (stile retrocamera) i due bordi del corridoio diventano curve:
-//     x(y) = c0 + c1·(y − yref) + c2·(y − yref)²
-// adattate ai bordi per riga della maschera (minimi quadrati con scarto dei punti lontani, partendo
-// dalla retta del notebook). Dove il corridoio è dritto c2 ≈ 0 e la curva coincide con la retta.
-// Dove piega, la retta dello scarto in cm (identica al notebook) è un'approssimazione e la curva
-// mostra la forma che il modello vede. Lo scarto in cm resta quello del notebook: la curva è
-// grafica, non una misura nuova.
-function risolvi3(M) {                       // sistema 3×3 [A|b] con eliminazione di Gauss; null se singolare
-  for (let i = 0; i < 3; i++) {
-    let m = i; for (let j = i + 1; j < 3; j++) if (Math.abs(M[j][i]) > Math.abs(M[m][i])) m = j;
+// Per l'«assistente di linea» (stile retrocamera) il sentiero è un NASTRO:
+//     centro(y)   = c0 + c1·u + c2·u²      (u = y − yref)   linea centrale che flette
+//     semilarg(y) = h0 + h1·u                                semilarghezza in prospettiva
+// I bordi sono centro ∓ semilarghezza: non possono incrociarsi e piegano insieme lungo il sentiero.
+// I parametri si adattano ai punti medi e alle semilarghezze per riga della maschera (minimi quadrati con
+// scarto dei punti lontani), partendo dalle rette del notebook, e in `puntiNastro` restano vincolati a
+// quelle rette (validate): semilarghezza fra 0,6 e 1,4 volte la loro, centro entro mezza semilarghezza.
+// Lo scarto in cm resta quello del notebook: le curve sono grafica, non una misura nuova.
+function risolviN(M) {                       // sistema n×n [A|b] con eliminazione di Gauss; null se singolare
+  const n = M.length;
+  for (let i = 0; i < n; i++) {
+    let m = i; for (let j = i + 1; j < n; j++) if (Math.abs(M[j][i]) > Math.abs(M[m][i])) m = j;
     [M[i], M[m]] = [M[m], M[i]];
     if (Math.abs(M[i][i]) < 1e-9) return null;
-    for (let j = i + 1; j < 3; j++) { const f = M[j][i] / M[i][i]; for (let k = i; k < 4; k++) M[j][k] -= f * M[i][k]; }
+    for (let j = i + 1; j < n; j++) { const f = M[j][i] / M[i][i]; for (let k = i; k <= n; k++) M[j][k] -= f * M[i][k]; }
   }
-  const x = [0, 0, 0];
-  for (let i = 2; i >= 0; i--) { let t = M[i][3]; for (let k = i + 1; k < 3; k++) t -= M[i][k] * x[k]; x[i] = t / M[i][i]; }
+  const x = new Array(n).fill(0);
+  for (let i = n - 1; i >= 0; i--) { let t = M[i][n]; for (let k = i + 1; k < n; k++) t -= M[i][k] * x[k]; x[i] = t / M[i][i]; }
   return x;
 }
 
-export function curveBordi(bordi, rette, yrefT) {
-  return [[bordi.ls, bordi.sx, rette[0]], [bordi.ld, bordi.dx, rette[1]]].map(([ys, bordo, p]) => {
-    const u = ys.map(y => y - yrefT), e = ys.map(y => bordo[y]);
-    let c = [polyval(p, yrefT), p[0], 0];
-    for (let giro = 0; giro < 4; giro++) {
-      const res = e.map((ei, i) => ei - (c[0] + c[1] * u[i] + c[2] * u[i] * u[i]));
-      const sg = Math.max(1.4826 * mediana(res.map(Math.abs)), 0.5);
-      const M = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]];
-      for (let i = 0; i < u.length; i++) if (Math.abs(res[i]) < 3 * sg) {
-        const r = [1, u[i], u[i] * u[i]];
-        for (let j = 0; j < 3; j++) { for (let k = 0; k < 3; k++) M[j][k] += r[j] * r[k]; M[j][3] += r[j] * e[i]; }
-      }
-      const n = risolvi3(M); if (!n) break; c = n;
+function fitRobusto(u, e, c0, grado, sgMin = 0.5, giri = 4) {
+  let c = c0.slice();
+  const val = (cc, x) => cc.reduce((a, ck, k) => a + ck * x ** k, 0);
+  for (let g = 0; g < giri; g++) {
+    const res = e.map((ei, i) => ei - val(c, u[i]));
+    const sg = Math.max(1.4826 * mediana(res.map(Math.abs)), sgMin);
+    const M = Array.from({ length: grado + 1 }, () => new Array(grado + 2).fill(0));
+    let n = 0;
+    for (let i = 0; i < u.length; i++) if (Math.abs(res[i]) < 3 * sg) {
+      n++; const r = []; for (let k = 0; k <= grado; k++) r.push(u[i] ** k);
+      for (let j = 0; j <= grado; j++) { for (let k = 0; k <= grado; k++) M[j][k] += r[j] * r[k]; M[j][grado + 1] += r[j] * e[i]; }
     }
-    return { c0: c[0], c1: c[1], c2: c[2] };
-  });
-}
-
-// Limita la curvatura: nel tratto disegnato lo scostamento quadratico non supera `quota` volte la
-// larghezza del corridoio alla riga di riferimento (oltre, è rumore della maschera).
-export function limitaCurvatura(k, spanT, larghT, quota = 0.35) {
-  const max = quota * larghT / Math.max(spanT * spanT, 1);
-  return Math.max(-max, Math.min(max, k));
-}
-
-// Punti delle tre curve (sinistra, destra, mezzeria) in coordinate del fotogramma, dal basso verso l'alto.
-// cv = [{c0, c1, c2}, {c0, c1, c2}] nelle coordinate della tela del modello; yrefT è la riga di riferimento
-// usata per ricavarle (lo stesso valore passato a curveBordi).
-export function curveFotogramma(cv, util, Wf, Hf, yrefT, yBassoF, yAltoF, n = 30) {
-  const { ox, oy, nw, nh } = util, sxf = Wf / nw, syf = Hf / nh;    // yrefT: riga di riferimento della tela, quella di curveBordi
-  const out = { sx: [], dx: [], mid: [] };
-  const val = (c, u) => (c.c0 + c.c1 * u + c.c2 * u * u - ox) * sxf;
-  for (let i = 0; i < n; i++) {
-    const yf = yBassoF + (yAltoF - yBassoF) * (n > 1 ? i / (n - 1) : 0), u = yf / syf + oy - yrefT;
-    const xl = val(cv[0], u), xr = val(cv[1], u);
-    out.sx.push([xl, yf]); out.dx.push([xr, yf]); out.mid.push([(xl + xr) / 2, yf]);
+    if (n < 3 * (grado + 1)) break;
+    const nuovo = risolviN(M); if (!nuovo) break; c = nuovo;
   }
-  return out;
+  return c;
+}
+
+// bordi: {ls, ld, sx, dx} da geometriaCorridoio; rette: [pl, pr]; yrefT: riga di riferimento (tela).
+// Ritorna {c:[c0,c1,c2], h:[h0,h1]} oppure null.
+export function nastroBordi(bordi, rette, yrefT) {
+  const inD = new Set(bordi.ld);
+  const righe = bordi.ls.filter(y => inD.has(y) && bordi.dx[y] - bordi.sx[y] > 1.3);   // righe con ENTRAMBI i bordi veri
+  if (righe.length < 20) return null;
+  const [pl, pr] = rette;
+  const u = righe.map(y => y - yrefT);
+  const cNb = [(polyval(pl, yrefT) + polyval(pr, yrefT)) / 2, (pl[0] + pr[0]) / 2, 0];
+  const hNb = [(polyval(pr, yrefT) - polyval(pl, yrefT)) / 2, (pr[0] - pl[0]) / 2];
+  return {
+    c: fitRobusto(u, righe.map(y => (bordi.sx[y] + bordi.dx[y]) / 2), cNb, 2),
+    h: fitRobusto(u, righe.map(y => (bordi.dx[y] - bordi.sx[y]) / 2), hNb, 1),
+  };
+}
+
+// Tre curve (sinistra, destra, mezzeria) alle righe `ys` della tela, con i vincoli che le tengono sensate.
+export function puntiNastro(par, rette, ys, yrefT, quotaCentro = 0.5, banda = [0.6, 1.4]) {
+  const [pl, pr] = rette, xl = [], xr = [], xm = [];
+  for (const y of ys) {
+    const u = y - yrefT;
+    const hNb = (polyval(pr, y) - polyval(pl, y)) / 2, cNb = (polyval(pl, y) + polyval(pr, y)) / 2;
+    const h = Math.max(Math.min(Math.max(par.h[0] + par.h[1] * u, banda[0] * hNb), banda[1] * hNb), 0.7);
+    const c = Math.min(Math.max(par.c[0] + par.c[1] * u + par.c[2] * u * u, cNb - quotaCentro * hNb), cNb + quotaCentro * hNb);
+    xl.push(c - h); xr.push(c + h); xm.push(c);
+  }
+  return { xl, xr, xm };
 }

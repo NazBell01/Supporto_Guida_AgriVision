@@ -3,7 +3,7 @@
 // Coordinate in pixel CSS del canvas; `k` scala le misure del notebook (pensate
 // per fotogrammi da ~1280x720) sullo schermo del telefono.
 
-import { polyval, limitaCurvatura, curveFotogramma } from './geometria.js';
+import { polyval, puntiNastro } from './geometria.js';
 
 // Palette del marchio (RGB). Blu pieno per i riempimenti, schiarito per linee e testo.
 const BLU_MARCHIO = '#0B4080';
@@ -123,18 +123,23 @@ export class Cruscotto {
   // che piegano come il sentiero visto dal modello. Si assottigliano con la distanza.
   lineeGuida(curve, yAltoF, yBassoF, col, stato) {
     const c = this.ctx, { w: Wf, h: Hf } = this.dim, K = v => this.K(v);
-    const { cv, util, rette, yrefT } = curve, { oy, nh } = util, syf = Hf / nh;
-    const larghT = polyval(rette[1], yrefT) - polyval(rette[0], yrefT);
-    const spanT = Math.max(Math.abs(yBassoF / syf + oy - yrefT), Math.abs(yAltoF / syf + oy - yrefT));
-    const cl = cv.map(q => ({ ...q, c2: limitaCurvatura(q.c2, spanT, larghT) }));
-    const N = 44, ys = [];                                  // passo che si infittisce verso l'alto: la prospettiva
-    const yB = Math.min(Hf, yBassoF + K(6));
-    for (let i = 0; i < N; i++) ys.push(yB + (yAltoF - yB) * (1 - Math.pow(1 - i / (N - 1), 1.6)));
-    const pts = { sx: [], dx: [], mid: [] };
-    for (const y of ys) {
-      const q = curveFotogramma(cl, util, Wf, Hf, yrefT, y, y, 1);
-      pts.sx.push(q.sx[0]); pts.dx.push(q.dx[0]); pts.mid.push(q.mid[0]);
+    const { par, util, rette, yrefT } = curve, { ox, oy, nw, nh } = util, sxf = Wf / nw, syf = Hf / nh;
+    // righe della tela: dal basso (vicino) a dove la semilarghezza della retta del notebook si annulla (punto di fuga)
+    const yAltoT = yAltoF / syf + oy, yBT = Math.min(Hf / syf + oy, yBassoF / syf + oy + K(6) / syf);
+    const hRef = (polyval(rette[1], yrefT) - polyval(rette[0], yrefT)) / 2;
+    let yaT = yAltoT;
+    for (let i = 0; i <= 200; i++) {
+      const y = yAltoT + (yBT - yAltoT) * i / 200;
+      if ((polyval(rette[1], y) - polyval(rette[0], y)) / 2 >= 0.12 * hRef) { yaT = y; break; }
     }
+    const N = 44, ysT = [];                                 // passo che si infittisce verso l'alto: la prospettiva
+    for (let i = 0; i < N; i++) ysT.push(yBT + (yaT - yBT) * (1 - Math.pow(1 - i / (N - 1), 1.6)));
+    const q = puntiNastro(par, rette, ysT, yrefT);
+    const pts = { sx: [], dx: [], mid: [] };
+    ysT.forEach((y, i) => {
+      const yf = (y - oy) * syf;
+      pts.sx.push([(q.xl[i] - ox) * sxf, yf]); pts.dx.push([(q.xr[i] - ox) * sxf, yf]); pts.mid.push([(q.xm[i] - ox) * sxf, yf]);
+    });
     const att = stato !== 'ok' ? 0.6 : 1;
     // Tinta piena e punte piatte: i segmenti trasparenti sovrapposti darebbero un effetto «a perline».
     // Prima tutti i contorni scuri, poi i colori, così i giunti non si vedono. Lo spessore cala con la distanza.

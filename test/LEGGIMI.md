@@ -18,6 +18,7 @@ profondità **vere** prodotte da MiDaS su foto reali (`profondita_reali.json`): 
 (deve vedere gli ostacoli e indicare il libero), facciata di un palazzo e primo piano di una pianta
 (non devono dare una via libera inventata). `node test/generale.mjs`.
 
-**`curve.mjs`** — prove della curvatura dei bordi per lo stile «linee guida»: corridoio dritto (curvatura ≈ 0),
-sentiero che piega a destra e a sinistra (curvatura del segno giusto e vicina al valore vero, anche con rumore sulla
-maschera), limite alla curvatura. `video_curva.py` genera un video sintetico con un sentiero che curva, per provarlo a occhio.
+**`curve.mjs`** — prove dello stile «linee guida» (nastro): fedeltà su sentieri puliti (dritto, curvo da un lato e dall'altro, con
+rumore: curvatura vera ritrovata e bordi sulla maschera) e robustezza su 600 maschere **sporche** (morsi di fogliame, buchi,
+rumore): le due curve non si incrociano mai. `video_curva.py` e `video_zigzag.py` generano video sintetici (un sentiero che
+curva; una camera che oscilla con ostacoli sul bordo) per provarlo a occhio.

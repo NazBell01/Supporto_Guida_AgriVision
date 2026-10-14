@@ -1,10 +1,11 @@
 """Stile «assistente di linea» (retrocamera): due curve laterali e una mezzeria tratteggiata di colore
 diverso che piegano seguendo il sentiero visto dal modello, al posto del trapezio con la griglia.
 
-È la stessa idea della versione per telefono (js/geometria.js, js/disegno.js): i bordi del corridoio,
-per riga della maschera, si adattano a x(y) = c0 + c1·(y − yref) + c2·(y − yref)², partendo dalla retta
-del notebook. Dove il corridoio è dritto c2 ≈ 0 e la curva coincide con la retta. Lo scarto in cm resta
-quello del notebook: la curva è grafica, non una misura nuova. Il righello è quello del notebook.
+Il sentiero è un NASTRO: una linea centrale che flette (parabola) e una semilarghezza in prospettiva
+(retta); i bordi sono centro ∓ semilarghezza, quindi non possono incrociarsi e piegano insieme. Parametri
+adattati alla maschera e vincolati alle rette del notebook (validate): larghezza fra 0,6 e 1,4 volte quella
+della retta, centro entro mezza semilarghezza. È la stessa idea della versione per telefono. Lo scarto in cm
+resta quello del notebook: le curve sono grafica, non una misura nuova. Il righello è quello del notebook.
 """
 import cv2
 import numpy as np
@@ -12,14 +13,33 @@ import numpy as np
 from . import nucleo as N
 
 SCURO = (10, 8, 6)
+SMORZ = 0.35                              # peso del fotogramma nuovo nella media esponenziale (più basso = più stabile)
 _prec = {"cv": None}                      # curve del fotogramma precedente, per lisciarle (media esponenziale)
 
 
-def curve_bordi(maschera, geo, yref, y_alto, y_basso, margine_bordo=0.02):
-    """Adatta una parabola a ciascun bordo. Lavora in coordinate del fotogramma.
+def _fit_robusto(u, e, c0, grado, sg_min=1.5, giri=4):
+    """Minimi quadrati di e ≈ polinomio(u) con scarto dei punti lontani (3 sigma robusti), da una stima iniziale c0."""
+    c = np.array(c0, float)
+    base = lambda uu: np.vstack([uu ** k for k in range(grado + 1)]).T
+    for _ in range(giri):
+        res = e - base(u) @ c
+        sg = max(1.4826 * float(np.median(np.abs(res))), sg_min)
+        k = np.abs(res) < 3 * sg
+        if k.sum() < 3 * (grado + 1):
+            break
+        c = np.linalg.lstsq(base(u[k]), e[k], rcond=None)[0]
+    return c
 
-    maschera: uint8 H×W (frame); geo: ((a,b) sinistro, (a,b) destro) con x = a·y + b, sempre in coordinate del fotogramma.
-    Ritorna [(c0,c1,c2) sinistro, (c0,c1,c2) destro] oppure None.
+
+def nastro_bordi(maschera, geo, yref, y_alto, y_basso, margine_bordo=0.02):
+    """Il sentiero come un NASTRO: una linea centrale che flette e una semilarghezza in prospettiva.
+
+        centro(y)   = c0 + c1·u + c2·u²        (u = y − yref)
+        semilarg(y) = h0 + h1·u
+
+    I due bordi sono centro ∓ semilarghezza: non possono incrociarsi, e piegano insieme lungo il sentiero.
+    Si adatta ai punti medi e alle semilarghezze per riga della maschera, partendo dalle rette del notebook.
+    Ritorna ((c0,c1,c2), (h0,h1)) in coordinate del fotogramma, oppure None.
     """
     m = maschera.astype(bool)
     Hf, Wf = m.shape
@@ -30,29 +50,35 @@ def curve_bordi(maschera, geo, yref, y_alto, y_basso, margine_bordo=0.02):
     sx = np.argmax(m[ys], axis=1).astype(float)
     dx = (Wf - 1 - np.argmax(m[ys][:, ::-1], axis=1)).astype(float)
     lim = max(2.0, margine_bordo * Wf)
-    presente = m[ys].any(axis=1)
-    out = []
-    for bordo, p, ok in ((sx, geo[0], presente & (sx > lim)), (dx, geo[1], presente & (dx < Wf - 1 - lim))):
-        if ok.sum() < 15:
-            return None
-        u = ys[ok].astype(float) - yref
-        e = bordo[ok]
-        c = np.array([p[0] * yref + p[1], p[0], 0.0])               # parte dalla retta del notebook
-        for _ in range(4):
-            res = e - (c[0] + c[1] * u + c[2] * u * u)
-            sg = max(1.4826 * float(np.median(np.abs(res))), 1.5)   # px del fotogramma
-            k = np.abs(res) < 3 * sg
-            if k.sum() < 12:
-                break
-            c = np.linalg.lstsq(np.c_[np.ones(k.sum()), u[k], u[k] ** 2], e[k], rcond=None)[0]
-        out.append(tuple(float(v) for v in c))
-    return out
+    ok = m[ys].any(axis=1) & (sx > lim) & (dx < Wf - 1 - lim) & (dx - sx > 4)      # righe con ENTRAMBI i bordi veri
+    if ok.sum() < 20:
+        return None
+    u = ys[ok].astype(float) - yref
+    pl, pr = geo
+    c_nb = [(np.polyval(pl, yref) + np.polyval(pr, yref)) / 2, (pl[0] + pr[0]) / 2, 0.0]
+    h_nb = [(np.polyval(pr, yref) - np.polyval(pl, yref)) / 2, (pr[0] - pl[0]) / 2]
+    centro = _fit_robusto(u, (sx[ok] + dx[ok]) / 2, c_nb, 2)
+    semi = _fit_robusto(u, (dx[ok] - sx[ok]) / 2, h_nb, 1)
+    return tuple(float(v) for v in centro), tuple(float(v) for v in semi)
 
 
-def _limita(c2, span, larghezza, quota=0.35):
-    """Nel tratto disegnato lo scostamento quadratico non supera `quota` volte la larghezza alla riga di riferimento."""
-    massimo = quota * larghezza / max(span * span, 1.0)
-    return float(np.clip(c2, -massimo, massimo))
+def punti_nastro(par, geo, ys, yref, quota_centro=0.5, banda_larghezza=(0.6, 1.4)):
+    """Tre curve (sinistra, destra, mezzeria) alle righe `ys`, con i vincoli che le tengono sensate.
+
+    Rispetto alle rette del notebook (validate): la semilarghezza resta fra 0,6 e 1,4 volte quella della retta,
+    e il centro non si allontana dalla retta centrale più di `quota_centro` semilarghezze. Quindi le curve
+    piegano, ma non possono incrociarsi né fuggire via.
+    """
+    (c0, c1, c2), (h0, h1) = par
+    pl, pr = geo
+    u = np.asarray(ys, float) - yref
+    h_nb = (np.polyval(pr, ys) - np.polyval(pl, ys)) / 2
+    c_nb = (np.polyval(pl, ys) + np.polyval(pr, ys)) / 2
+    h = np.clip(h0 + h1 * u, banda_larghezza[0] * h_nb, banda_larghezza[1] * h_nb)
+    h = np.maximum(h, 2.0)
+    c = c0 + c1 * u + c2 * u * u
+    c = np.clip(c, c_nb - quota_centro * h_nb, c_nb + quota_centro * h_nb)
+    return c - h, c + h, c
 
 
 def _tratto(f, P, colore, w0, w1, salta_dispari=False, k=1.0):
@@ -101,25 +127,30 @@ def disegna_corridoio_linee(f, maschera, geo, stato):
     if largh < 20:
         return f, None, None, None
 
-    cv_ = curve_bordi(maschera, geo, yref, y_alto, y_basso)
-    if cv_ is None:                                   # maschera troppo povera: due rette
-        cv_ = [(float(np.polyval(pl, yref)), float(pl[0]), 0.0), (float(np.polyval(pr, yref)), float(pr[0]), 0.0)]
-    elif _prec["cv"] is not None:                     # liscia nel tempo
-        cv_ = [tuple(a + 0.5 * (b - a) for a, b in zip(pa, pn)) for pa, pn in zip(_prec["cv"], cv_)]
-    _prec["cv"] = cv_
-    span = max(abs(y_basso + N._k(6) - yref), abs(y_alto - yref))
-    cv_ = [(c0, c1, _limita(c2, span, largh)) for c0, c1, c2 in cv_]
+    par = nastro_bordi(maschera, geo, yref, y_alto, y_basso)
+    if par is None:                                   # maschera troppo povera: due rette (nastro dritto)
+        par = ((float((np.polyval(pl, yref) + np.polyval(pr, yref)) / 2), float((pl[0] + pr[0]) / 2), 0.0),
+               (float(largh / 2), float((pr[0] - pl[0]) / 2)))
+    elif _prec["cv"] is not None:                     # liscia nel tempo: la traiettoria non salta da un fotogramma all'altro
+        pa = _prec["cv"]
+        par = (tuple(a + SMORZ * (b - a) for a, b in zip(pa[0], par[0])), tuple(a + SMORZ * (b - a) for a, b in zip(pa[1], par[1])))
+    _prec["cv"] = par
 
-    # campioni dal basso (vicino) verso l'alto (lontano): passo che si infittisce, come la prospettiva
+    # campioni dal basso (vicino) verso l'alto (lontano): passo che si infittisce, come la prospettiva.
+    # Si ferma dove la retta del notebook darebbe una semilarghezza quasi nulla (punto di fuga).
     n = 44
     yb = min(Hf - 1.0, y_basso + N._k(6))
-    ys = [yb + (y_alto - yb) * (1 - (1 - i / (n - 1)) ** 1.6) for i in range(n)]
-    def pt(c, y):
-        u = y - yref
-        return c[0] + c[1] * u + c[2] * u * u
-    L = [(int(round(pt(cv_[0], y))), int(round(y))) for y in ys]
-    R = [(int(round(pt(cv_[1], y))), int(round(y))) for y in ys]
-    M = [((a[0] + b[0]) // 2, a[1]) for a, b in zip(L, R)]
+    h_ref = (np.polyval(pr, yref) - np.polyval(pl, yref)) / 2
+    ya = y_alto
+    for y_try in np.linspace(y_alto, yb, 200):
+        if (np.polyval(pr, y_try) - np.polyval(pl, y_try)) / 2 >= 0.12 * h_ref:
+            ya = y_try
+            break
+    ys = np.array([yb + (ya - yb) * (1 - (1 - i / (n - 1)) ** 1.6) for i in range(n)])
+    xl, xr, xm = punti_nastro(par, geo, ys, yref)
+    L = [(int(round(a)), int(round(y))) for a, y in zip(xl, ys)]
+    R = [(int(round(a)), int(round(y))) for a, y in zip(xr, ys)]
+    M = [(int(round(a)), int(round(y))) for a, y in zip(xm, ys)]
 
     kk = 0.7 * max(0.9, N.K_UI)              # un po' più sottile del cruscotto: le linee non devono coprire il sentiero
     # tacche trasversali, come le barre di distanza di una retrocamera

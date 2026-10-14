@@ -73,7 +73,11 @@ Nessun addestramento. **Limiti, tutti da conoscere:**
 Nelle impostazioni (modalità Vigna) si sceglie lo **stile della guida**. *Linee guida* (predefinito) disegna come una
 retrocamera: due curve laterali e una mezzeria tratteggiata bianca che piegano seguendo il sentiero visto dal modello,
 con qualche tacca trasversale; si assottigliano con la distanza. *Area* è il trapezio con la griglia di prima, che resta
-sempre dritto. Le curve sono adattate ai bordi della maschera (una parabola per bordo, partendo dalla retta del notebook);
-dove il corridoio è dritto coincidono con la retta. **Lo scarto in cm è sempre quello del notebook**: la curva è grafica,
-non una misura nuova. Dove il sentiero piega molto, la retta con cui si misura lo scarto è un'approssimazione e la curva
-mostra la forma reale. Se la maschera è povera il disegno ricade su due rette.
+sempre dritto. Il sentiero è un **nastro**: una linea centrale che flette (parabola) e una semilarghezza in prospettiva; i due bordi
+sono la linea centrale ∓ la semilarghezza. Per questo piegano **insieme**, come le linee guida di una retrocamera, e **non
+possono incrociarsi**. Parametri adattati alla maschera del modello, vincolati alle rette del notebook (validate): larghezza
+fra 0,6 e 1,4 volte quella della retta, centro entro mezza semilarghezza; lisciati nel tempo perché la traiettoria non salti
+da un fotogramma all'altro. Dove il corridoio è dritto coincidono con le rette. **Lo scarto in cm è sempre quello del
+notebook**: le curve sono grafica, non una misura nuova. Se la maschera è povera il disegno ricade su un nastro dritto.
+La versione precedente adattava ogni bordo da solo e su maschere sporche le curve si incrociavano nel 35% dei casi; ora zero,
+su 600 maschere sporche (morsi di fogliame, buchi, rumore) in entrambe le versioni.

@@ -60,7 +60,7 @@ record per fotogramma) viene scritto accanto al video, o dove indichi con `--reg
 | opzione | a cosa serve |
 |---|---|
 | `--corridoio-cm 200` | larghezza reale del corridoio, in cm. **200 vale per Vigna94**; per un'altra vigna va misurata. `0` = scala non misurata: lo scarto è in pixel e il cruscotto lo dichiara |
-| `--stile linee` | `linee` (default): **assistente di linea**, con due curve laterali e una mezzeria tratteggiata che seguono il sentiero come le linee guida di una retrocamera. `area`: trapezio e griglia del notebook |
+| `--stile linee` | `linee` (default): **assistente di linea**, con due curve laterali e una mezzeria tratteggiata che seguono il sentiero come le linee guida di una retrocamera, sotto forma di nastro che flette senza mai incrociarsi. `area`: trapezio e griglia del notebook |
 | `--larghezza 960` | larghezza di lavoro. Più piccola = più veloce (la rete lavora comunque a 320×192; il costo è il disegno e la codifica) |
 | `--thread N` | thread di onnxruntime (default: automatico) |
 | `--registra file.mp4` | salva il video col cruscotto e il registro |
@@ -87,7 +87,7 @@ Il servizio pubblica il video sulla porta 8080 e scrive i registri in `registri/
 
 ## Prove
 
-`PYTHONPATH=. python3 test_curve.py` verifica la curvatura delle linee guida su maschere sintetiche.
+`PYTHONPATH=. python3 test_curve.py` verifica le linee guida: fedeltà su sentieri puliti e, su 600 maschere sporche, che le due curve non si incrocino mai.
 
 `./test_fumo.sh` (servono `onnx`, `onnxruntime`, `opencv`, `ffmpeg`) esegue tutto con un modello **finto** e un video
 sintetico: verifica sorgente, cruscotto, video in rete e registro. **Non dice niente sulla qualità del modello.**
