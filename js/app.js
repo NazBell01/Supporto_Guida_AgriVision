@@ -221,7 +221,24 @@ async function avviaCamera() {
 
 async function avviaFile(file) {
   errore(''); fermaStream();
-  S.daFile = true; video.srcObject = null; video.src = URL.createObjectURL(file); video.loop = true; video.muted = true;
+  S.daFile = true; video.srcObject = null; video.loop = true; video.muted = true;
+  // Prima si verifica che il browser sappia decodificare il video: con H.265/HEVC (telefoni, action cam) Chrome
+  // sul computer carica il file ma non produce immagini, e le dimensioni restano 0×0.
+  const leggibile = await new Promise(ris => {
+    const t = setTimeout(() => ris(false), 5000);
+    video.onloadedmetadata = () => { clearTimeout(t); ris(video.videoWidth > 0 && video.videoHeight > 0); };
+    video.onerror = () => { clearTimeout(t); ris(false); };
+    video.src = URL.createObjectURL(file);
+  });
+  video.onloadedmetadata = video.onerror = null;
+  if (!leggibile) {
+    video.removeAttribute('src');
+    return errore(`Il browser non riesce a leggere «${file.name}» (${file.type || 'tipo sconosciuto'}): ` +
+      `quasi sempre il video è in H.265/HEVC o in un formato non supportato. ` +
+      `Convertilo in H.264 e riprova: con ffmpeg  «ffmpeg -i ${file.name} -c:v libx264 -pix_fmt yuv420p -an convertito.mp4», ` +
+      `oppure con HandBrake o VLC (Converti, profilo «Video H.264 + MP3 (MP4)»). ` +
+      `Il programma per Raspberry legge anche l'H.265.`);
+  }
   try { await video.play(); partenza(); } catch (e) { errore(`Video non riproducibile: ${e.message}`); }
 }
 
@@ -242,8 +259,9 @@ function partenza() {
   avviso('Analisi del primo fotogramma…', 0);
   clearTimeout(S.attesa);
   S.attesa = setTimeout(() => { if (S.attivo && !S.primo) avviso(
-    `Il primo fotogramma non è ancora pronto (${S.provider}, ${video.videoWidth}×${video.videoHeight}). Il modello è lento su questo dispositivo, ` +
-    `oppure c'è un errore: apri la console del browser (F12) e mandami il messaggio.`, 0); }, 6000);
+    (video.videoWidth ? `Il primo fotogramma non è ancora pronto (${S.provider}, ${video.videoWidth}×${video.videoHeight}). Il modello è lento su questo dispositivo, ` +
+    `oppure c'è un errore: apri la console del browser (F12) e mandami il messaggio.`
+    : 'Il browser non produce immagini da questo video (0×0): probabile H.265/HEVC. Convertilo in H.264 (MP4) e riprova.'), 0); }, 6000);
   requestAnimationFrame(ciclo);
 }
 
